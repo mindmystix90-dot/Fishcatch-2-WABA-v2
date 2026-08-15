@@ -16,7 +16,6 @@ COPY ./index.html ./
 COPY ./src ./src
 COPY ./server.ts ./
 COPY ./storageService.ts ./
-COPY ./.env.example ./.env
 COPY ./runWithProvider.js ./
 
 RUN npm ci --silent
@@ -39,7 +38,6 @@ COPY --from=builder /evolution/dist ./dist
 COPY --from=builder /evolution/server.ts ./server.ts
 COPY --from=builder /evolution/storageService.ts ./storageService.ts
 COPY --from=builder /evolution/src ./src
-COPY --from=builder /evolution/.env ./.env
 COPY --from=builder /evolution/runWithProvider.js ./runWithProvider.js
 COPY --from=builder /evolution/tsup.config.ts ./tsup.config.ts
 COPY --from=builder /evolution/tsconfig*.json ./
