@@ -2,30 +2,24 @@ FROM node:24-alpine AS builder
 
 RUN apk add --no-cache git ffmpeg wget curl bash openssl
 
-LABEL version="2.3.1" description="Api to control whatsapp features through http requests." 
-LABEL maintainer="Davidson Gomes" git="https://github.com/DavidsonGomes"
-LABEL contact="contato@evolution-api.com"
+LABEL version="2.3.1" description="Fishcatch WhatsApp Gateway & AI Copilot Platform"
 
 WORKDIR /evolution
 
 COPY ./package*.json ./
-COPY ./tsconfig.json ./
+COPY ./tsconfig*.json ./
 COPY ./tsup.config.ts ./
-
-RUN npm ci --silent
-
+COPY ./vite*.ts ./
+COPY ./tailwind.config.js ./
+COPY ./postcss.config.js ./
+COPY ./index.html ./
 COPY ./src ./src
-COPY ./public ./public
-COPY ./prisma ./prisma
-COPY ./manager ./manager
+COPY ./server.ts ./
+COPY ./storageService.ts ./
 COPY ./.env.example ./.env
 COPY ./runWithProvider.js ./
 
-COPY ./Docker ./Docker
-
-RUN chmod +x ./Docker/scripts/* && dos2unix ./Docker/scripts/*
-
-RUN ./Docker/scripts/generate_database.sh
+RUN npm ci --silent
 
 RUN npm run build
 
@@ -35,24 +29,21 @@ RUN apk add --no-cache tzdata ffmpeg bash openssl
 
 ENV TZ=America/Sao_Paulo
 ENV DOCKER_ENV=true
+ENV NODE_ENV=production
 
 WORKDIR /evolution
 
-COPY --from=builder /evolution/package.json ./package.json
-COPY --from=builder /evolution/package-lock.json ./package-lock.json
-
+COPY --from=builder /evolution/package*.json ./
 COPY --from=builder /evolution/node_modules ./node_modules
 COPY --from=builder /evolution/dist ./dist
-COPY --from=builder /evolution/prisma ./prisma
-COPY --from=builder /evolution/manager ./manager
-COPY --from=builder /evolution/public ./public
+COPY --from=builder /evolution/server.ts ./server.ts
+COPY --from=builder /evolution/storageService.ts ./storageService.ts
+COPY --from=builder /evolution/src ./src
 COPY --from=builder /evolution/.env ./.env
-COPY --from=builder /evolution/Docker ./Docker
 COPY --from=builder /evolution/runWithProvider.js ./runWithProvider.js
 COPY --from=builder /evolution/tsup.config.ts ./tsup.config.ts
+COPY --from=builder /evolution/tsconfig*.json ./
 
-ENV DOCKER_ENV=true
+EXPOSE 3000
 
-EXPOSE 8080
-
-ENTRYPOINT ["/bin/bash", "-c", ". ./Docker/scripts/deploy_database.sh && npm run start:prod" ]
+CMD ["npm", "start"]
