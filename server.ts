@@ -286,6 +286,67 @@ function getGeminiClient(): GoogleGenAI {
   return genAI;
 }
 
+// Resilient Gemini AI content generation with multi-model fallback and quota handling
+async function safeGenerateContent(
+  prompt: string,
+  preferredModel?: string,
+  fallbackText?: string,
+  timeoutMs: number = 8000
+): Promise<{ text: string; isFallback: boolean; reason?: string }> {
+  const apiKey = process.env.GEMINI_API_KEY;
+  if (!apiKey) {
+    return {
+      text: fallbackText || 'Hello! Thank you for contacting us. How can we assist you today?',
+      isFallback: true,
+      reason: 'GEMINI_API_KEY is not configured',
+    };
+  }
+
+  const modelQueue = [
+    preferredModel || process.env.GEMINI_MODEL || 'gemini-3.7-flash',
+    'gemini-flash-latest',
+    'gemini-3.1-flash-lite',
+  ].filter((m, idx, arr) => m && arr.indexOf(m) === idx);
+
+  for (const model of modelQueue) {
+    try {
+      const ai = getGeminiClient();
+      const aiPromise = ai.models.generateContent({
+        model,
+        contents: prompt,
+      });
+
+      const timeoutPromise = new Promise<never>((_, reject) =>
+        setTimeout(() => reject(new Error('AI generation timeout')), timeoutMs)
+      );
+
+      const response: any = await Promise.race([aiPromise, timeoutPromise]);
+      const resultText = response.text?.trim();
+      if (resultText) {
+        return { text: resultText, isFallback: false };
+      }
+    } catch (err: any) {
+      const isQuota =
+        err?.status === 429 ||
+        err?.message?.includes('429') ||
+        err?.message?.includes('RESOURCE_EXHAUSTED') ||
+        err?.message?.includes('quota');
+
+      if (isQuota) {
+        console.warn(`[Gemini AI Notice] Quota reached on ${model}. Trying backup model.`);
+      } else {
+        console.warn(`[Gemini AI Notice] Generation notice on ${model}: ${err.message || err}`);
+      }
+    }
+  }
+
+  return {
+    text: fallbackText || 'Hello! Thank you for contacting us. How can we assist you today?',
+    isFallback: true,
+    reason: 'Rate limit or service quota reached',
+  };
+}
+
 // Tenant resolver middleware / helper
 function resolveBusinessId(req: Request): string {
   const headerId = req.headers['x-business-id'] as string;
@@ -947,17 +1008,17 @@ Customer Inquiry: "${incomingText}"
 Compose a concise, friendly, and helpful WhatsApp reply grounded strictly in the business context provided. Do not include markdown headers, and keep it under 3-4 sentences.
 `;
 
-    const response = await ai.models.generateContent({
-      model: aiCfg.modelName || 'gemini-3.7-flash',
-      contents: prompt,
-    });
+    const { text: replyText } = await safeGenerateContent(
+      prompt,
+      aiCfg.modelName || 'gemini-3.7-flash',
+      `Hello ${customer.name || 'there'}! Thank you for contacting us. How can we assist you with our services today?`
+    );
 
-    const replyText = response.text?.trim();
     if (replyText) {
       await sendOutboundMessageInternal(businessId, conv, replyText, 'ai');
     }
   } catch (err: any) {
-    console.error('[Fishcatch AI Engine Error]', err.message);
+    console.warn('[Fishcatch AI Engine Notice]', err.message || err);
   }
 }
 
@@ -1674,7 +1735,6 @@ app.post('/api/ai/test', async (req: Request, res: Response) => {
   ].filter(Boolean).join('\n\n');
 
   try {
-    const ai = getGeminiClient();
     const prompt = `
 System Persona: ${aiCfg.systemPrompt || 'You are an intelligent WhatsApp AI Assistant for Fishcatch.'}
 Agent Name: ${aiCfg.agentName || 'Fishcatch AI Assistant'}
@@ -1692,17 +1752,16 @@ Respond to this inquiry following WhatsApp best practices:
 3. If the user is asking about something not covered, politely let them know and offer to connect them with a human team member.
 `;
 
-    const aiPromise = ai.models.generateContent({
-      model: aiCfg.modelName || process.env.GEMINI_MODEL || 'gemini-3.7-flash',
-      contents: prompt,
-    });
+    let fallbackGreeting = `Hello! Thank you for reaching out. ${aiCfg.businessDescription ? 'We are happy to assist you with our services.' : 'How can we help you today?'}`;
+    if (uploadedDocsGrounding) {
+      fallbackGreeting = `Grounded knowledge: ${uploadedDocsGrounding.substring(0, 300)}`;
+    }
 
-    const timeoutPromise = new Promise((_, reject) =>
-      setTimeout(() => reject(new Error('AI response timeout')), 10000)
+    const { text: responseText, isFallback, reason } = await safeGenerateContent(
+      prompt,
+      aiCfg.modelName || process.env.GEMINI_MODEL || 'gemini-3.7-flash',
+      fallbackGreeting
     );
-
-    const response: any = await Promise.race([aiPromise, timeoutPromise]);
-    const responseText = response.text?.trim() || 'Hello! Thank you for contacting us. How can we assist you today?';
 
     // Simple heuristic check for handoff
     const lower = (message || '').toLowerCase();
@@ -1714,9 +1773,9 @@ Respond to this inquiry following WhatsApp best practices:
       intent: 'Inquiry Testing',
       leadScore: 75,
       handoff,
+      notice: isFallback ? reason : undefined,
     });
   } catch (err: any) {
-    console.error('[AI Test Notice]', err.message);
     let groundedFallback = `Hello! Thank you for reaching out. ${aiCfg.businessDescription ? 'We are happy to assist you with our services.' : 'How can we help you today?'}`;
     if (uploadedDocsGrounding) {
       groundedFallback = `Grounded knowledge: ${uploadedDocsGrounding.substring(0, 300)}`;
@@ -1727,7 +1786,7 @@ Respond to this inquiry following WhatsApp best practices:
       intent: 'Grounded Inquiry',
       leadScore: 70,
       handoff: false,
-      notice: !process.env.GEMINI_API_KEY ? 'Gemini API Key is not configured in server environment.' : err.message,
+      notice: !process.env.GEMINI_API_KEY ? 'Gemini API Key is not configured in server environment.' : (err.message || 'Grounded fallback active'),
     });
   }
 });
@@ -1756,7 +1815,6 @@ app.post('/api/ai/generate-draft', async (req: Request, res: Response) => {
   ].filter(Boolean).join('\n');
 
   try {
-    const ai = getGeminiClient();
     const historyText = convMsgs
       .map(m => `${m.from === 'customer' ? 'Customer' : 'Agent'}: ${m.text}`)
       .join('\n');
@@ -1775,17 +1833,17 @@ Suggest one direct, polite, and effective WhatsApp draft reply for the human age
 Return ONLY the suggested message text without quotes, formatting, or meta commentary.
 `;
 
-    const response = await ai.models.generateContent({
-      model: aiCfg.modelName || process.env.GEMINI_MODEL || 'gemini-3.7-flash',
-      contents: prompt,
-    });
+    const { text: draftText } = await safeGenerateContent(
+      prompt,
+      aiCfg.modelName || process.env.GEMINI_MODEL || 'gemini-3.7-flash',
+      `Hello ${conv?.customerName || 'there'}! How can we best assist you with your request today?`
+    );
 
     res.json({
       success: true,
-      draft: response.text?.trim() || `Hello ${conv?.customerName || 'there'}! How can we best assist you with your request today?`,
+      draft: draftText || `Hello ${conv?.customerName || 'there'}! How can we best assist you with your request today?`,
     });
   } catch (err: any) {
-    console.error('[AI Draft Error]', err.message);
     res.json({
       success: true,
       draft: `Hello ${conv?.customerName || 'there'}! Thank you for contacting us. How can we best assist you today?`,
@@ -1800,7 +1858,6 @@ app.post('/api/ai/analyze-intent', async (req: Request, res: Response) => {
   const aiCfg = db.aiConfigs[businessId];
 
   try {
-    const ai = getGeminiClient();
     const prompt = `
 Analyze this WhatsApp customer message:
 "${text || ''}"
@@ -1813,18 +1870,13 @@ Return valid JSON with keys:
 - "suggestedActions": array of 2 short actionable recommendations
 `;
 
-    const aiPromise = ai.models.generateContent({
-      model: aiCfg?.modelName || process.env.GEMINI_MODEL || 'gemini-3.7-flash',
-      contents: prompt,
-    });
-
-    const timeoutPromise = new Promise((_, reject) =>
-      setTimeout(() => reject(new Error('AI analysis timeout')), 8000)
+    const { text: rawOutput } = await safeGenerateContent(
+      prompt,
+      aiCfg?.modelName || process.env.GEMINI_MODEL || 'gemini-3.7-flash',
+      '{"sentiment":"Neutral","intent":"General Inquiry","urgency":"Medium","leadScore":65,"suggestedActions":["Respond promptly","Provide information"]}'
     );
 
-    const response: any = await Promise.race([aiPromise, timeoutPromise]);
-    const raw = response.text || '';
-    const cleanJson = raw.replace(/```json/g, '').replace(/```/g, '').trim();
+    const cleanJson = rawOutput.replace(/```json/g, '').replace(/```/g, '').trim();
     const parsed = JSON.parse(cleanJson);
     res.json({ success: true, analysis: parsed });
   } catch (err: any) {
@@ -2207,7 +2259,15 @@ app.post('/api/storage/upload', upload.single('file'), async (req: Request, res:
       message: `File "${file.originalname}" securely uploaded to ${fileRecord.metadata?.backend === 'firebase_gcs' ? 'Firebase Cloud Storage' : 'Tenant Storage'}.`,
     });
   } catch (err: any) {
-    console.error('[Storage Upload Error]', err);
+    if (
+      err.message?.includes('UNSUPPORTED_MIME_TYPE') ||
+      err.message?.includes('FILE_TOO_LARGE') ||
+      err.message?.includes('MISSING_FILE')
+    ) {
+      console.warn('[Storage Upload Validation]', err.message);
+    } else {
+      console.error('[Storage Upload Error]', err.message || err);
+    }
     res.status(400).json({
       success: false,
       error: { code: 'UPLOAD_FAILED', message: err.message },
