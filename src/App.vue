@@ -145,7 +145,25 @@ const handleCreateWorkspace = async () => {
 // Live polling for real-time incoming messages & status every 5 seconds
 let pollTimer: any = null;
 
+const legalInitialTab = ref<'privacy' | 'terms' | 'deletion'>('privacy');
+
+const checkRoute = () => {
+  const path = window.location.pathname;
+  if (path.includes('/privacy-policy') || path.includes('/privacy')) {
+    currentTab.value = 'legal';
+    legalInitialTab.value = 'privacy';
+  } else if (path.includes('/terms')) {
+    currentTab.value = 'legal';
+    legalInitialTab.value = 'terms';
+  } else if (path.includes('/data-deletion')) {
+    currentTab.value = 'legal';
+    legalInitialTab.value = 'deletion';
+  }
+};
+
 onMounted(async () => {
+  checkRoute();
+  window.addEventListener('popstate', checkRoute);
   await loadWorkspaceData();
   pollTimer = setInterval(async () => {
     try {
@@ -165,10 +183,13 @@ onMounted(async () => {
 
 onUnmounted(() => {
   if (pollTimer) clearInterval(pollTimer);
+  window.removeEventListener('popstate', checkRoute);
 });
 
 const handleNavigate = (tab: string) => {
   currentTab.value = tab;
+  if (tab === 'dashboard') window.history.pushState({}, '', '/');
+  else if (tab === 'legal') window.history.pushState({}, '', '/privacy-policy');
 };
 
 const handleSelectConversation = (id: string | null) => {
@@ -282,6 +303,8 @@ const handleSelectConversation = (id: string | null) => {
         <!-- Legal & Policies -->
         <LegalView
           v-else-if="currentTab === 'legal'"
+          :initial-tab="legalInitialTab"
+          @navigate="handleNavigate"
         />
       </main>
     </div>

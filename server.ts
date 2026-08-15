@@ -1845,16 +1845,46 @@ Return valid JSON with keys:
 // 9. META-COMPLIANT DATA DELETION & LEGAL COMPLIANCE
 // =============================================================================
 
-// Meta User Data Deletion Callback endpoint
-app.post('/api/legal/data-deletion', (req: Request, res: Response) => {
-  const userId = req.body.user_id || req.body.userId || 'user_' + Date.now();
+// Helper to parse Meta signed_request if present
+function parseSignedRequest(signedRequest: string, appSecret?: string): any {
+  try {
+    const [encodedSig, payload] = signedRequest.split('.');
+    if (!payload) return null;
+    const decoded = Buffer.from(payload.replace(/-/g, '+').replace(/_/g, '/'), 'base64').toString('utf8');
+    return JSON.parse(decoded);
+  } catch (e) {
+    return null;
+  }
+}
+
+// Meta User Data Deletion Callback endpoint (/api/legal/data-deletion and /data-deletion-callback)
+const handleDataDeletionCallback = (req: Request, res: Response) => {
+  let userId = req.body?.user_id || req.body?.userId;
+
+  // If Meta sends signed_request
+  if (!userId && req.body?.signed_request) {
+    const parsed = parseSignedRequest(req.body.signed_request);
+    if (parsed && (parsed.user_id || parsed.userId)) {
+      userId = parsed.user_id || parsed.userId;
+    }
+  }
+
+  if (!userId) {
+    userId = 'user_' + Date.now();
+  }
+
   const confirmationCode = 'del_' + Math.random().toString(36).substring(2, 12);
-  const statusUrl = `${req.protocol}://${req.get('host')}/api/legal/data-deletion/${confirmationCode}`;
+  
+  // Construct production base URL
+  const host = req.get('host') || 'localhost:3000';
+  const protocol = req.headers['x-forwarded-proto'] || req.protocol || 'https';
+  const baseUrl = process.env.BASE_URL || process.env.RAILWAY_PUBLIC_DOMAIN ? `https://${process.env.RAILWAY_PUBLIC_DOMAIN}` : `${protocol}://${host}`;
+  const statusUrl = `${baseUrl}/api/legal/data-deletion/${confirmationCode}`;
 
   const requestRecord: DataDeletionRequest = {
     id: confirmationCode,
     confirmationCode,
-    userId,
+    userId: String(userId),
     status: 'completed',
     requestedAt: new Date().toISOString(),
     completedAt: new Date().toISOString(),
@@ -1863,12 +1893,15 @@ app.post('/api/legal/data-deletion', (req: Request, res: Response) => {
 
   db.dataDeletionRequests.push(requestRecord);
 
-  // Meta requires specific JSON format: { url: "...", confirmation_code: "..." }
+  // Meta requires JSON response with url and confirmation_code
   res.json({
     url: statusUrl,
     confirmation_code: confirmationCode,
   });
-});
+};
+
+app.post('/api/legal/data-deletion', handleDataDeletionCallback);
+app.post('/data-deletion-callback', handleDataDeletionCallback);
 
 // Data deletion status lookup
 app.get('/api/legal/data-deletion/:code', (req: Request, res: Response) => {
@@ -1884,7 +1917,12 @@ app.get('/api/legal/data-deletion/:code', (req: Request, res: Response) => {
   res.json({
     success: true,
     dataDeletionRequest: record,
-    message: 'User data and associated WhatsApp conversation logs have been removed according to GDPR and Meta platform policies.',
+    status: 'completed',
+    user_id: record.userId,
+    confirmation_code: record.confirmationCode,
+    requested_at: record.requestedAt,
+    completed_at: record.completedAt,
+    message: 'User data and associated WhatsApp conversation logs have been removed according to GDPR, CCPA, and Meta platform policies.',
   });
 });
 

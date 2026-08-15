@@ -97,6 +97,15 @@ const menuItems = [
         <span>Fishcatch v1.0.0</span>
         <span>Zero-Fake SaaS</span>
       </div>
+
+      <!-- Public Legal Links -->
+      <div class="px-2 pt-2 border-t border-slate-100 flex flex-wrap gap-x-2 gap-y-1 text-[10px] text-slate-500">
+        <a href="/privacy-policy" @click.prevent="emit('navigate', 'legal')" class="hover:text-emerald-700 hover:underline">Privacy Policy</a>
+        <span class="text-slate-300">•</span>
+        <a href="/terms" @click.prevent="emit('navigate', 'legal')" class="hover:text-emerald-700 hover:underline">Terms</a>
+        <span class="text-slate-300">•</span>
+        <a href="/data-deletion" @click.prevent="emit('navigate', 'legal')" class="hover:text-emerald-700 hover:underline">Data Deletion</a>
+      </div>
     </div>
   </aside>
 </template>
