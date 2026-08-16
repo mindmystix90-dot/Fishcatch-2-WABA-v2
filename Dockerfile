@@ -6,7 +6,10 @@ LABEL version="2.3.1" description="Fishcatch WhatsApp Gateway & AI Copilot Platf
 
 WORKDIR /evolution
 
-COPY ./package*.json ./
+COPY package.json package-lock.json ./
+
+RUN npm ci --no-audit --no-fund
+
 COPY ./tsconfig*.json ./
 COPY ./tsup.config.ts ./
 COPY ./vite*.ts ./
@@ -17,8 +20,6 @@ COPY ./src ./src
 COPY ./server.ts ./
 COPY ./storageService.ts ./
 COPY ./runWithProvider.js ./
-
-RUN npm ci --no-audit --no-fund
 
 RUN npm run build
 
