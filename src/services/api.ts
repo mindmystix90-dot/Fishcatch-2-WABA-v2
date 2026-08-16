@@ -258,7 +258,7 @@ export const api = {
 
   async uploadFile(
     formData: FormData,
-    onProgress?: (_percent: number) => void
+    onProgress?: (progressPercent: number) => void
   ): Promise<{ file: StoredFileMetadata; message: string }> {
     const res = await client.post('/storage/upload', formData, {
       headers: {

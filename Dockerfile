@@ -18,7 +18,7 @@ COPY ./server.ts ./
 COPY ./storageService.ts ./
 COPY ./runWithProvider.js ./
 
-RUN npm ci --silent
+RUN npm ci --no-audit --no-fund
 
 RUN npm run build
 

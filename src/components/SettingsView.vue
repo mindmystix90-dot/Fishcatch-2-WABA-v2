@@ -190,31 +190,10 @@ const launchMetaEmbeddedSignup = () => {
       }
     );
   } else {
-    // If Meta SDK is blocked (e.g. adblocker) or direct dialog simulation
-    embeddedStep.value = 'discovering';
-    embeddedStepMessage.value = 'Connecting with Meta Cloud API...';
-    setTimeout(() => {
-      embeddedStep.value = 'subscribing';
-      embeddedStepMessage.value = 'Subscribing Webhook pipelines...';
-      setTimeout(async () => {
-        try {
-          await api.embeddedSignup({
-            metaAppId: embeddedAppId.value || '104857291039482',
-            wabaId: wabaId.value || 'waba_meta_' + Math.random().toString(36).substring(2, 8),
-            phoneNumberId: phoneNumberId.value || 'phone_' + Math.random().toString(36).substring(2, 8),
-            displayPhoneNumber: '+1 (555) 019-2834',
-            verifiedName: props.activeBusiness?.name || 'Fishcatch Verified Business',
-          });
-          embeddedStep.value = 'success';
-          isEmbeddedLaunching.value = false;
-          emit('refresh');
-        } catch (err: any) {
-          embeddedStep.value = 'error';
-          embeddedError.value = err.response?.data?.error?.message || err.message;
-          isEmbeddedLaunching.value = false;
-        }
-      }, 1000);
-    }, 1000);
+    // If Meta SDK is not loaded (e.g. adblocker or script load blocked)
+    embeddedStep.value = 'error';
+    embeddedError.value = 'Meta Facebook JavaScript SDK failed to load. Please disable browser content blockers, verify internet access to facebook.net, or connect manually using the Manual Credentials tab.';
+    isEmbeddedLaunching.value = false;
   }
 };
 

@@ -599,24 +599,71 @@ app.post('/api/whatsapp/embedded-signup', async (req: Request, res: Response) =>
   const businessId = resolveBusinessId(req);
   const { code, wabaId, phoneNumberId, accessToken } = req.body;
 
-  if (!phoneNumberId && !code) {
+  if (!phoneNumberId && !code && !accessToken) {
     return res.status(400).json({
       success: false,
       error: { code: 'INVALID_SIGNUP_DATA', message: 'Meta Embedded Signup payload is missing required authorization.' },
     });
   }
 
+  let finalAccessToken = accessToken || process.env.WABA_ACCESS_TOKEN || '';
+  let finalPhoneId = phoneNumberId || '';
+  let finalWabaId = wabaId || '';
+  let verifiedName = req.body.verifiedName || 'Fishcatch Business Line';
+  let displayPhoneNumber = req.body.displayPhoneNumber || '';
+
+  // If authorization code was returned and Meta App Secret is configured on server, exchange code for system user access token
+  const metaAppId = req.body.metaAppId || process.env.FB_APP_ID || process.env.META_APP_ID || '';
+  const metaAppSecret = process.env.FB_APP_SECRET || process.env.META_APP_SECRET || '';
+
+  if (code && metaAppId && metaAppSecret) {
+    try {
+      const tokenRes = await axios.get('https://graph.facebook.com/v21.0/oauth/access_token', {
+        params: {
+          client_id: metaAppId,
+          client_secret: metaAppSecret,
+          code,
+        },
+        timeout: 10000,
+      });
+      if (tokenRes.data?.access_token) {
+        finalAccessToken = tokenRes.data.access_token;
+      }
+    } catch (tokenErr: any) {
+      console.warn('[Meta Embedded Code Exchange Notice]', tokenErr.response?.data || tokenErr.message);
+    }
+  }
+
+  // If we have an access token and phone number ID, query Meta Graph API for official verified details
+  if (finalPhoneId && finalAccessToken) {
+    try {
+      const phoneRes = await axios.get(`https://graph.facebook.com/v21.0/${finalPhoneId}`, {
+        params: {
+          fields: 'id,display_phone_number,verified_name,quality_rating',
+          access_token: finalAccessToken,
+        },
+        timeout: 10000,
+      });
+      if (phoneRes.data) {
+        displayPhoneNumber = phoneRes.data.display_phone_number || displayPhoneNumber;
+        verifiedName = phoneRes.data.verified_name || verifiedName;
+      }
+    } catch (phoneErr: any) {
+      console.warn('[Meta Phone Details Notice]', phoneErr.response?.data || phoneErr.message);
+    }
+  }
+
   // Store credentials obtained through embedded signup
   db.connections[businessId] = {
     businessId,
     status: 'CONNECTED',
-    metaAppId: req.body.metaAppId || process.env.FB_APP_ID || '',
-    wabaId: wabaId || '',
-    phoneNumberId: phoneNumberId || '',
-    displayPhoneNumber: req.body.displayPhoneNumber || '+1 (Embedded Signup)',
-    verifiedName: req.body.verifiedName || 'Fishcatch Business Line',
+    metaAppId,
+    wabaId: finalWabaId,
+    phoneNumberId: finalPhoneId,
+    displayPhoneNumber: displayPhoneNumber || (finalPhoneId ? `+${finalPhoneId}` : '+1 (Embedded Line)'),
+    verifiedName,
     qualityRating: 'GREEN',
-    accessToken: accessToken || process.env.WABA_ACCESS_TOKEN || '',
+    accessToken: finalAccessToken,
     connectedAt: new Date().toISOString(),
     lastVerifiedAt: new Date().toISOString(),
   };
@@ -1495,6 +1542,51 @@ app.post('/api/templates', (req: Request, res: Response) => {
     buttons: Array.isArray(buttons) ? buttons : undefined,
     createdAt: new Date().toISOString(),
   };
+
+  // If connected with live WABA ID, create template on Meta Graph API
+  const conn = db.connections[businessId];
+  if (conn && conn.status === 'CONNECTED' && conn.wabaId && conn.accessToken) {
+    const components: any[] = [];
+    if (header?.text) {
+      components.push({ type: 'HEADER', format: 'TEXT', text: header.text });
+    }
+    components.push({ type: 'BODY', text: body.trim() });
+    if (footer) {
+      components.push({ type: 'FOOTER', text: footer });
+    }
+    if (Array.isArray(buttons) && buttons.length > 0) {
+      components.push({
+        type: 'BUTTONS',
+        buttons: buttons.map((b: any) => ({
+          type: b.type || 'QUICK_REPLY',
+          text: b.text,
+          url: b.url,
+          phone_number: b.phone_number,
+        })),
+      });
+    }
+
+    axios.post(
+      `https://graph.facebook.com/v21.0/${conn.wabaId}/message_templates`,
+      {
+        name: cleanName,
+        category: category || 'UTILITY',
+        language: language || 'en_US',
+        components,
+      },
+      {
+        params: { access_token: conn.accessToken },
+        timeout: 10000,
+      }
+    ).then((metaRes) => {
+      if (metaRes.data?.id) {
+        newTemplate.id = metaRes.data.id;
+        newTemplate.status = metaRes.data.status || 'PENDING';
+      }
+    }).catch((metaErr: any) => {
+      console.warn('[Meta Template Creation Notice]', metaErr.response?.data || metaErr.message);
+    });
+  }
 
   db.templates.unshift(newTemplate);
 

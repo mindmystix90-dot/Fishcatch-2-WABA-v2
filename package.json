@@ -109,7 +109,6 @@
   },
   "devDependencies": {
     "@egoist/tailwindcss-icons": "^1.9.2",
-    "@histoire/plugin-vue": "0.17.15",
     "@iconify-json/logos": "^1.2.10",
     "@iconify-json/lucide": "^1.2.82",
     "@iconify-json/ph": "^1.2.2",
@@ -133,7 +132,6 @@
     "eslint-plugin-vitest-globals": "^1.5.0",
     "eslint-plugin-vue": "^9.28.0",
     "fake-indexeddb": "^6.0.0",
-    "histoire": "0.17.15",
     "husky": "^7.0.0",
     "jsdom": "^27.2.0",
     "lint-staged": "^16.2.7",
@@ -150,6 +148,13 @@
   "engines": {
     "node": "24.x",
     "pnpm": "10.x"
+  },
+  "overrides": {
+    "vite": "6.4.2",
+    "vitest": "3.0.5",
+    "minimatch@<4": "3.1.5",
+    "minimatch@>=9.0.0 <9.0.7": "9.0.9",
+    "rollup": ">=4.59.0"
   },
   "husky": {
     "hooks": {
