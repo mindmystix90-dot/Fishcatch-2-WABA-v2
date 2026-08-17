@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { ref } from 'vue';
-import type { BusinessTenant, WhatsAppConnection } from '../types';
+import type { BusinessTenant, WhatsAppConnection, UserProfile } from '../types';
 import {
   Building2,
   Plus,
@@ -8,9 +8,10 @@ import {
   CheckCircle2,
   AlertCircle,
   Shield,
-  ExternalLink,
   MessageSquare,
   Sparkles,
+  LogOut,
+  ExternalLink,
 } from 'lucide-vue-next';
 
 const props = defineProps<{
@@ -18,12 +19,14 @@ const props = defineProps<{
   activeBusiness: BusinessTenant | null;
   connection: WhatsAppConnection | null;
   currentTab: string;
+  currentUser?: UserProfile | null;
 }>();
 
 const emit = defineEmits<{
   (e: 'switchBusiness', id: string): void;
   (e: 'openCreateBusinessModal'): void;
   (e: 'navigate', tab: string): void;
+  (e: 'logout'): void;
 }>();
 
 const isDropdownOpen = ref(false);
@@ -35,42 +38,29 @@ const handleSelect = (id: string) => {
 </script>
 
 <template>
-  <header class="h-16 bg-white border-b border-slate-200 px-6 flex items-center justify-between sticky top-0 z-30 shadow-xs">
-    <!-- Brand & Workspace Switcher -->
-    <div class="flex items-center gap-6">
-      <div class="flex items-center gap-2.5 cursor-pointer" @click="emit('navigate', 'dashboard')">
-        <div class="w-9 h-9 rounded-lg bg-emerald-600 flex items-center justify-center text-white shadow-sm font-bold text-lg">
-          <svg class="w-5 h-5" viewBox="0 0 24 24" fill="currentColor">
-            <path d="M12 2C6.48 2 2 6.48 2 12c0 1.82.49 3.53 1.34 5L2 22l5.14-1.34C8.58 21.5 10.24 22 12 22c5.52 0 10-4.48 10-10S17.52 2 12 2zm1 14h-2v-2h2v2zm0-4h-2V7h2v5z"/>
-          </svg>
-        </div>
-        <div>
-          <div class="flex items-center gap-1.5">
-            <span class="text-lg font-bold tracking-tight text-slate-900">Fishcatch</span>
-            <span class="text-[10px] uppercase tracking-wider font-semibold px-1.5 py-0.5 rounded bg-emerald-50 text-emerald-700 border border-emerald-200">Production</span>
-          </div>
-          <p class="text-[11px] text-slate-500 font-medium">WhatsApp AI Lead Automation</p>
-        </div>
-      </div>
-
-      <!-- Workspace Selector -->
+  <header class="h-16 bg-white border-b border-slate-200 px-6 flex items-center justify-between sticky top-0 z-30 shadow-xs" id="sizc-header">
+    <!-- Left: Workspace Switcher -->
+    <div class="flex items-center gap-4">
       <div class="relative">
         <button
           @click="isDropdownOpen = !isDropdownOpen"
-          class="flex items-center gap-2.5 px-3 py-1.5 text-xs font-medium text-slate-700 bg-slate-50 hover:bg-slate-100 border border-slate-200 rounded-lg transition-colors"
+          class="flex items-center gap-2.5 px-3 py-1.5 text-xs font-semibold text-slate-700 bg-slate-50 hover:bg-slate-100 border border-slate-200 rounded-xl transition-colors shadow-xs"
+          id="btn-workspace-switcher"
         >
-          <Building2 class="w-3.5 h-3.5 text-slate-500" />
-          <span class="max-w-[150px] truncate font-semibold text-slate-800">{{ activeBusiness?.name || 'Select Workspace' }}</span>
+          <Building2 class="w-3.5 h-3.5 text-indigo-600" />
+          <span class="max-w-[160px] truncate font-bold text-slate-900">
+            {{ activeBusiness?.name || 'My Workspace' }}
+          </span>
           <ChevronDown class="w-3.5 h-3.5 text-slate-400" />
         </button>
 
         <!-- Dropdown Menu -->
         <div
           v-if="isDropdownOpen"
-          class="absolute left-0 mt-1.5 w-64 bg-white border border-slate-200 rounded-xl shadow-lg py-1.5 z-50 animate-in fade-in zoom-in-95 duration-100"
+          class="absolute left-0 mt-1.5 w-64 bg-white border border-slate-200 rounded-xl shadow-xl py-1.5 z-50 animate-fade-in"
         >
-          <div class="px-3 py-1.5 text-[11px] font-semibold uppercase tracking-wider text-slate-400">
-            Workspaces
+          <div class="px-3 py-1.5 text-[10px] font-bold uppercase tracking-wider text-slate-400">
+            Your Business Workspaces
           </div>
           <div class="max-h-56 overflow-y-auto">
             <button
@@ -78,59 +68,76 @@ const handleSelect = (id: string) => {
               :key="biz.id"
               @click="handleSelect(biz.id)"
               class="w-full px-3 py-2 text-left flex items-center justify-between hover:bg-slate-50 text-xs transition-colors"
-              :class="biz.id === activeBusiness?.id ? 'text-emerald-700 bg-emerald-50/50 font-semibold' : 'text-slate-700'"
+              :class="biz.id === activeBusiness?.id ? 'text-indigo-700 bg-indigo-50/60 font-bold' : 'text-slate-700'"
             >
               <div class="truncate">
                 <div>{{ biz.name }}</div>
-                <div class="text-[10px] text-slate-400 truncate">{{ biz.email }}</div>
+                <div class="text-[10px] text-slate-400 truncate">{{ biz.category }} • {{ biz.country }}</div>
               </div>
-              <span v-if="biz.id === activeBusiness?.id" class="w-1.5 h-1.5 rounded-full bg-emerald-600"></span>
+              <span v-if="biz.id === activeBusiness?.id" class="w-1.5 h-1.5 rounded-full bg-indigo-600"></span>
             </button>
           </div>
           <div class="border-t border-slate-100 mt-1 pt-1">
             <button
               @click="isDropdownOpen = false; emit('openCreateBusinessModal')"
-              class="w-full px-3 py-2 text-left text-xs font-medium text-emerald-600 hover:bg-emerald-50 flex items-center gap-2 transition-colors"
+              class="w-full px-3 py-2 text-left text-xs font-semibold text-indigo-600 hover:bg-indigo-50 flex items-center gap-2 transition-colors"
+              id="btn-add-workspace-menu"
             >
               <Plus class="w-3.5 h-3.5" />
-              Create New Business Workspace
+              Add Another Business Workspace
             </button>
           </div>
         </div>
       </div>
+
+      <!-- Quick Tab Breadcrumb -->
+      <div class="hidden md:flex items-center gap-2 text-xs font-semibold text-slate-400">
+        <span>/</span>
+        <span class="text-slate-700 capitalize font-bold">{{ currentTab.replace('-', ' ') }}</span>
+      </div>
     </div>
 
-    <!-- Right: WhatsApp Cloud API Status & Action -->
+    <!-- Right Controls -->
     <div class="flex items-center gap-3">
       <!-- WhatsApp Status Badge -->
       <div
-        v-if="connection?.status === 'CONNECTED'"
         @click="emit('navigate', 'settings')"
-        class="cursor-pointer flex items-center gap-2 px-3 py-1 bg-emerald-50 border border-emerald-200/80 rounded-full text-emerald-800 text-xs font-medium hover:bg-emerald-100 transition-colors"
+        class="cursor-pointer flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-bold transition-colors"
+        :class="
+          connection?.status === 'CONNECTED'
+            ? 'bg-emerald-50 text-emerald-700 border border-emerald-200 hover:bg-emerald-100'
+            : 'bg-slate-100 text-slate-600 border border-slate-200 hover:bg-slate-200'
+        "
+        id="badge-whatsapp-status"
       >
-        <span class="relative flex h-2 w-2">
-          <span class="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
-          <span class="relative inline-flex rounded-full h-2 w-2 bg-emerald-500"></span>
+        <span
+          class="w-2 h-2 rounded-full"
+          :class="connection?.status === 'CONNECTED' ? 'bg-emerald-500 animate-pulse' : 'bg-slate-400'"
+        ></span>
+        <span class="hidden sm:inline">
+          {{ connection?.status === 'CONNECTED' ? 'WhatsApp Connected' : 'WhatsApp Disconnected' }}
         </span>
-        <span>Meta Cloud API: <strong>Connected</strong> ({{ connection.displayPhoneNumber || 'Active' }})</span>
+        <span class="sm:hidden">WhatsApp</span>
       </div>
 
-      <div
-        v-else
-        @click="emit('navigate', 'settings')"
-        class="cursor-pointer flex items-center gap-2 px-3 py-1 bg-amber-50 border border-amber-200 rounded-full text-amber-800 text-xs font-medium hover:bg-amber-100 transition-colors"
-      >
-        <AlertCircle class="w-3.5 h-3.5 text-amber-600" />
-        <span>WhatsApp: <strong>Not Connected</strong></span>
-      </div>
-
-      <!-- Quick Action -->
+      <!-- AI Simulator Quick Button -->
       <button
-        @click="emit('navigate', 'inbox')"
-        class="hidden sm:inline-flex items-center gap-2 px-3.5 py-1.5 text-xs font-semibold bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg transition-colors shadow-xs"
+        @click="emit('navigate', 'ai-agent')"
+        class="hidden lg:flex items-center gap-1.5 px-3 py-1.5 bg-indigo-50 hover:bg-indigo-100 text-indigo-700 border border-indigo-200 rounded-xl text-xs font-bold transition-colors"
+        id="btn-quick-ai-sim"
       >
-        <MessageSquare class="w-3.5 h-3.5" />
-        Open Live Inbox
+        <Sparkles class="w-3.5 h-3.5 text-indigo-600" />
+        <span>Gemini AI Agent</span>
+      </button>
+
+      <!-- Logout / Switch to Landing -->
+      <button
+        @click="emit('logout')"
+        title="Exit to Landing Page"
+        class="p-2 text-slate-400 hover:text-slate-600 hover:bg-slate-100 rounded-xl transition-colors"
+        id="btn-header-logout"
+      >
+        <LogOut class="w-4 h-4" />
       </button>
     </div>
   </header>

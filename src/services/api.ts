@@ -8,6 +8,7 @@ import type {
   ChatMessage,
   MessageTemplate,
   AutomationRule,
+  Campaign,
   AIConfig,
   AdminOverview,
   StoredFileMetadata,
@@ -58,7 +59,48 @@ export const api = {
     return res.data.business;
   },
 
-  // WhatsApp Connection
+  // WhatsApp Connection & Infrastructure Abstraction
+  async getWhatsAppStatus(): Promise<{
+    success: boolean;
+    connected: boolean;
+    status: 'NOT_CONNECTED' | 'CONNECTING' | 'CONNECTED' | 'ERROR';
+    businessName?: string;
+    phoneNumber?: string;
+    connectedAt?: string | null;
+    updatedAt?: string | null;
+    lastWebhookAt?: string | null;
+    code?: string;
+    message?: string;
+  }> {
+    const res = await client.get('/integrations/whatsapp/status');
+    return res.data;
+  },
+
+  async connectWhatsApp(): Promise<{
+    success: boolean;
+    connected: boolean;
+    status: string;
+    businessName?: string;
+    phoneNumber?: string;
+    connectedAt?: string;
+    updatedAt?: string;
+    code?: string;
+    message?: string;
+  }> {
+    const res = await client.post('/integrations/whatsapp/connect');
+    return res.data;
+  },
+
+  async disconnectWhatsApp(): Promise<{
+    success: boolean;
+    connected: boolean;
+    status: string;
+    message?: string;
+  }> {
+    const res = await client.post('/integrations/whatsapp/disconnect');
+    return res.data;
+  },
+
   async getWhatsAppConnection(): Promise<{ connection: WhatsAppConnection; webhookUrl: string; verifyToken: string }> {
     const res = await client.get('/whatsapp/connection');
     return res.data;
@@ -76,11 +118,6 @@ export const api = {
 
   async embeddedSignup(data: any): Promise<{ connection: WhatsAppConnection; message: string }> {
     const res = await client.post('/whatsapp/embedded-signup', data);
-    return res.data;
-  },
-
-  async disconnectWhatsApp(): Promise<{ connection: WhatsAppConnection }> {
-    const res = await client.post('/whatsapp/disconnect');
     return res.data;
   },
 
@@ -167,6 +204,26 @@ export const api = {
     await client.delete(`/templates/${id}`);
   },
 
+  // Campaigns
+  async getCampaigns(): Promise<Campaign[]> {
+    const res = await client.get('/campaigns');
+    return res.data.campaigns;
+  },
+
+  async createCampaign(data: Partial<Campaign>): Promise<Campaign> {
+    const res = await client.post('/campaigns', data);
+    return res.data.campaign;
+  },
+
+  async updateCampaign(id: string, data: Partial<Campaign>): Promise<Campaign> {
+    const res = await client.put(`/campaigns/${id}`, data);
+    return res.data.campaign;
+  },
+
+  async deleteCampaign(id: string): Promise<void> {
+    await client.delete(`/campaigns/${id}`);
+  },
+
   // Automations
   async getAutomations(): Promise<AutomationRule[]> {
     const res = await client.get('/automations');
@@ -230,6 +287,24 @@ export const api = {
     return res.data;
   },
 
+  async setTenantStatus(businessId: string, status: 'active' | 'suspended'): Promise<any> {
+    const res = await client.post(`/admin/tenants/${businessId}/status`, { status });
+    return res.data;
+  },
+
+  async updateTenantFeatures(
+    businessId: string,
+    features: { whatsapp?: boolean; ai?: boolean; campaigns?: boolean; automations?: boolean }
+  ): Promise<any> {
+    const res = await client.put(`/admin/tenants/${businessId}/features`, features);
+    return res.data;
+  },
+
+  async resetUserPassword(userId: string): Promise<{ success: boolean; message: string; resetLink?: string }> {
+    const res = await client.post(`/admin/users/${userId}/reset-password`);
+    return res.data;
+  },
+
   async replayWebhookEvent(id: string): Promise<any> {
     const res = await client.post(`/admin/events/${id}/replay`);
     return res.data;
@@ -258,7 +333,7 @@ export const api = {
 
   async uploadFile(
     formData: FormData,
-    onProgress?: (progressPercent: number) => void
+    onProgress?: (percent: number) => void
   ): Promise<{ file: StoredFileMetadata; message: string }> {
     const res = await client.post('/storage/upload', formData, {
       headers: {

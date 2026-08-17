@@ -1,6 +1,6 @@
 {
-  "name": "Fishcatch",
-  "description": "AI-Powered WhatsApp Lead Handling & Customer Communication Platform",
+  "name": "SIZC",
+  "description": "AI-Powered Customer Communication & Sales Platform for Modern Businesses",
   "requestFramePermissions": [],
   "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
 }

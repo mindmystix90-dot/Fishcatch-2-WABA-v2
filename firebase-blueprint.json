@@ -1,0 +1,200 @@
+{
+  "entities": {
+    "User": {
+      "title": "User",
+      "description": "User profile with tenant association and role",
+      "type": "object",
+      "properties": {
+        "uid": { "type": "string", "maxLength": 128 },
+        "name": { "type": "string", "maxLength": 200 },
+        "email": { "type": "string", "format": "email", "maxLength": 254 },
+        "businessId": { "type": "string", "maxLength": 128 },
+        "role": { "type": "string", "enum": ["owner", "admin", "agent"] },
+        "createdAt": { "type": "string" },
+        "updatedAt": { "type": "string" }
+      },
+      "required": ["uid", "email", "businessId", "role", "createdAt", "updatedAt"]
+    },
+    "Business": {
+      "title": "Business",
+      "description": "Business tenant account organization",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "maxLength": 128 },
+        "name": { "type": "string", "maxLength": 200 },
+        "slug": { "type": "string", "maxLength": 100 },
+        "email": { "type": "string", "format": "email", "maxLength": 254 },
+        "category": { "type": "string", "maxLength": 100 },
+        "country": { "type": "string", "maxLength": 100 },
+        "plan": { "type": "string", "enum": ["Starter", "Growth", "Scale"] },
+        "createdAt": { "type": "string" },
+        "updatedAt": { "type": "string" }
+      },
+      "required": ["id", "name", "email", "plan", "createdAt", "updatedAt"]
+    },
+    "WhatsAppConnection": {
+      "title": "WhatsAppConnection",
+      "description": "WhatsApp Business API channel connection status",
+      "type": "object",
+      "properties": {
+        "businessId": { "type": "string", "maxLength": 128 },
+        "status": { "type": "string", "enum": ["CONNECTED", "NOT_CONNECTED", "ERROR", "DISCONNECTED"] },
+        "phoneNumberId": { "type": "string", "maxLength": 128 },
+        "wabaId": { "type": "string", "maxLength": 128 },
+        "displayPhoneNumber": { "type": "string", "maxLength": 64 },
+        "verifiedName": { "type": "string", "maxLength": 200 },
+        "qualityRating": { "type": "string", "maxLength": 50 },
+        "connectedAt": { "type": "string" },
+        "lastVerifiedAt": { "type": "string" }
+      },
+      "required": ["businessId", "status"]
+    },
+    "Contact": {
+      "title": "Contact",
+      "description": "Customer contact record",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "maxLength": 128 },
+        "businessId": { "type": "string", "maxLength": 128 },
+        "phone": { "type": "string", "maxLength": 64 },
+        "name": { "type": "string", "maxLength": 200 },
+        "email": { "type": "string", "maxLength": 254 },
+        "leadScore": { "type": "number" },
+        "leadBand": { "type": "string", "enum": ["Cold", "Warm", "Hot", "Very Hot"] },
+        "stage": { "type": "string", "enum": ["New", "Contacted", "Qualified", "Negotiation", "Won", "Lost"] },
+        "optInStatus": { "type": "string", "enum": ["opted_in", "opted_out"] },
+        "createdAt": { "type": "string" },
+        "updatedAt": { "type": "string" }
+      },
+      "required": ["id", "businessId", "phone", "name", "createdAt", "updatedAt"]
+    },
+    "Conversation": {
+      "title": "Conversation",
+      "description": "Conversation thread between customer and business",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "maxLength": 128 },
+        "businessId": { "type": "string", "maxLength": 128 },
+        "customerId": { "type": "string", "maxLength": 128 },
+        "customerPhone": { "type": "string", "maxLength": 64 },
+        "customerName": { "type": "string", "maxLength": 200 },
+        "lastMessage": { "type": "string", "maxLength": 2000 },
+        "lastMessageTime": { "type": "string" },
+        "unreadCount": { "type": "number" },
+        "status": { "type": "string", "enum": ["open", "resolved", "snoozed"] },
+        "mode": { "type": "string", "enum": ["AI", "HUMAN"] },
+        "createdAt": { "type": "string" },
+        "updatedAt": { "type": "string" }
+      },
+      "required": ["id", "businessId", "customerId", "customerPhone", "status", "mode", "createdAt", "updatedAt"]
+    },
+    "Message": {
+      "title": "Message",
+      "description": "Individual chat message",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "maxLength": 128 },
+        "businessId": { "type": "string", "maxLength": 128 },
+        "conversationId": { "type": "string", "maxLength": 128 },
+        "customerId": { "type": "string", "maxLength": 128 },
+        "from": { "type": "string", "enum": ["customer", "agent", "ai", "system"] },
+        "senderName": { "type": "string", "maxLength": 200 },
+        "text": { "type": "string", "maxLength": 10000 },
+        "type": { "type": "string", "enum": ["text", "image", "document", "template", "interactive", "audio"] },
+        "status": { "type": "string", "enum": ["sent", "delivered", "read", "failed"] },
+        "timestamp": { "type": "string" }
+      },
+      "required": ["id", "businessId", "conversationId", "from", "text", "status", "timestamp"]
+    },
+    "Lead": {
+      "title": "Lead",
+      "description": "AI-Qualified Lead and buying intent",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "maxLength": 128 },
+        "businessId": { "type": "string", "maxLength": 128 },
+        "customerId": { "type": "string", "maxLength": 128 },
+        "customerName": { "type": "string", "maxLength": 200 },
+        "customerPhone": { "type": "string", "maxLength": 64 },
+        "status": { "type": "string", "enum": ["New", "Contacted", "Qualified", "Negotiation", "Won", "Lost"] },
+        "score": { "type": "number" },
+        "band": { "type": "string", "enum": ["Cold", "Warm", "Hot", "Very Hot"] },
+        "intent": { "type": "string", "maxLength": 500 },
+        "value": { "type": "number" },
+        "createdAt": { "type": "string" },
+        "updatedAt": { "type": "string" }
+      },
+      "required": ["id", "businessId", "customerId", "customerName", "status", "score", "createdAt", "updatedAt"]
+    },
+    "Campaign": {
+      "title": "Campaign",
+      "description": "WhatsApp broadcast campaign",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "maxLength": 128 },
+        "businessId": { "type": "string", "maxLength": 128 },
+        "name": { "type": "string", "maxLength": 200 },
+        "audience": { "type": "string", "maxLength": 200 },
+        "status": { "type": "string", "enum": ["Draft", "Scheduled", "Running", "Completed", "Paused"] },
+        "targetCount": { "type": "number" },
+        "sentCount": { "type": "number" },
+        "createdAt": { "type": "string" },
+        "updatedAt": { "type": "string" }
+      },
+      "required": ["id", "businessId", "name", "status", "createdAt", "updatedAt"]
+    },
+    "Automation": {
+      "title": "Automation",
+      "description": "Keyword or event automation rule",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "maxLength": 128 },
+        "businessId": { "type": "string", "maxLength": 128 },
+        "name": { "type": "string", "maxLength": 200 },
+        "trigger": { "type": "string", "maxLength": 100 },
+        "isActive": { "type": "boolean" },
+        "executionCount": { "type": "number" },
+        "createdAt": { "type": "string" }
+      },
+      "required": ["id", "businessId", "name", "trigger", "isActive", "createdAt"]
+    }
+  },
+  "firestore": {
+    "/users/{userId}": {
+      "schema": { "$ref": "#/entities/User" },
+      "description": "User profiles and permissions"
+    },
+    "/businesses/{businessId}": {
+      "schema": { "$ref": "#/entities/Business" },
+      "description": "Tenant businesses"
+    },
+    "/whatsappConnections/{businessId}": {
+      "schema": { "$ref": "#/entities/WhatsAppConnection" },
+      "description": "WhatsApp credentials and connection states"
+    },
+    "/contacts/{contactId}": {
+      "schema": { "$ref": "#/entities/Contact" },
+      "description": "CRM contacts scoped by businessId"
+    },
+    "/conversations/{conversationId}": {
+      "schema": { "$ref": "#/entities/Conversation" },
+      "description": "Chat conversations scoped by businessId"
+    },
+    "/messages/{messageId}": {
+      "schema": { "$ref": "#/entities/Message" },
+      "description": "Chat messages scoped by businessId"
+    },
+    "/leadScores/{leadId}": {
+      "schema": { "$ref": "#/entities/Lead" },
+      "description": "AI Lead qualification cards"
+    },
+    "/campaigns/{campaignId}": {
+      "schema": { "$ref": "#/entities/Campaign" },
+      "description": "Broadcast campaigns"
+    },
+    "/automations/{automationId}": {
+      "schema": { "$ref": "#/entities/Automation" },
+      "description": "Automation rules"
+    }
+  }
+}

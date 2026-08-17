@@ -1,0 +1,111 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // Default deny all
+    match /{document=**} {
+      allow read, write: if false;
+    }
+
+    // Helper functions
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    function getUserData() {
+      return get(/databases/$(database)/documents/users/$(request.auth.uid)).data;
+    }
+
+    function isMemberOfBusiness(businessId) {
+      return isSignedIn() && getUserData().businessId == businessId;
+    }
+
+    function isValidId(id) {
+      return id is string && id.size() > 0 && id.size() <= 128 && id.matches('^[a-zA-Z0-9_\\-]+$');
+    }
+
+    // Users Collection
+    match /users/{userId} {
+      allow get: if isSignedIn() && (request.auth.uid == userId || getUserData().role == 'owner');
+      allow list: if isSignedIn() && resource.data.businessId == getUserData().businessId;
+      allow create: if isSignedIn() && request.auth.uid == userId;
+      allow update: if isSignedIn() && request.auth.uid == userId &&
+        request.resource.data.businessId == resource.data.businessId;
+      allow delete: if false;
+    }
+
+    // Businesses Collection
+    match /businesses/{businessId} {
+      allow get: if isValidId(businessId) && isMemberOfBusiness(businessId);
+      allow list: if isSignedIn() && resource.data.id == getUserData().businessId;
+      allow create: if isSignedIn();
+      allow update: if isValidId(businessId) && isMemberOfBusiness(businessId);
+      allow delete: if false;
+    }
+
+    // WhatsApp Connections (Restricted)
+    match /whatsappConnections/{businessId} {
+      allow get: if isValidId(businessId) && isMemberOfBusiness(businessId);
+      allow list: if isSignedIn() && resource.data.businessId == getUserData().businessId;
+      allow create, update: if isValidId(businessId) && isMemberOfBusiness(businessId);
+      allow delete: if isValidId(businessId) && isMemberOfBusiness(businessId);
+    }
+
+    // Contacts
+    match /contacts/{contactId} {
+      allow get: if isValidId(contactId) && isMemberOfBusiness(resource.data.businessId);
+      allow list: if isSignedIn() && resource.data.businessId == getUserData().businessId;
+      allow create: if isSignedIn() && isMemberOfBusiness(request.resource.data.businessId);
+      allow update: if isValidId(contactId) && isMemberOfBusiness(resource.data.businessId) &&
+        request.resource.data.businessId == resource.data.businessId;
+      allow delete: if isValidId(contactId) && isMemberOfBusiness(resource.data.businessId);
+    }
+
+    // Conversations
+    match /conversations/{conversationId} {
+      allow get: if isValidId(conversationId) && isMemberOfBusiness(resource.data.businessId);
+      allow list: if isSignedIn() && resource.data.businessId == getUserData().businessId;
+      allow create: if isSignedIn() && isMemberOfBusiness(request.resource.data.businessId);
+      allow update: if isValidId(conversationId) && isMemberOfBusiness(resource.data.businessId) &&
+        request.resource.data.businessId == resource.data.businessId;
+      allow delete: if isValidId(conversationId) && isMemberOfBusiness(resource.data.businessId);
+    }
+
+    // Messages
+    match /messages/{messageId} {
+      allow get: if isValidId(messageId) && isMemberOfBusiness(resource.data.businessId);
+      allow list: if isSignedIn() && resource.data.businessId == getUserData().businessId;
+      allow create: if isSignedIn() && isMemberOfBusiness(request.resource.data.businessId);
+      allow update: if isValidId(messageId) && isMemberOfBusiness(resource.data.businessId) &&
+        request.resource.data.businessId == resource.data.businessId;
+      allow delete: if false;
+    }
+
+    // Lead Scores & Qualified Leads
+    match /leadScores/{leadId} {
+      allow get: if isValidId(leadId) && isMemberOfBusiness(resource.data.businessId);
+      allow list: if isSignedIn() && resource.data.businessId == getUserData().businessId;
+      allow create: if isSignedIn() && isMemberOfBusiness(request.resource.data.businessId);
+      allow update: if isValidId(leadId) && isMemberOfBusiness(resource.data.businessId);
+      allow delete: if isValidId(leadId) && isMemberOfBusiness(resource.data.businessId);
+    }
+
+    // Broadcast Campaigns
+    match /campaigns/{campaignId} {
+      allow get: if isValidId(campaignId) && isMemberOfBusiness(resource.data.businessId);
+      allow list: if isSignedIn() && resource.data.businessId == getUserData().businessId;
+      allow create: if isSignedIn() && isMemberOfBusiness(request.resource.data.businessId);
+      allow update: if isValidId(campaignId) && isMemberOfBusiness(resource.data.businessId);
+      allow delete: if isValidId(campaignId) && isMemberOfBusiness(resource.data.businessId);
+    }
+
+    // Automation Rules
+    match /automations/{automationId} {
+      allow get: if isValidId(automationId) && isMemberOfBusiness(resource.data.businessId);
+      allow list: if isSignedIn() && resource.data.businessId == getUserData().businessId;
+      allow create: if isSignedIn() && isMemberOfBusiness(request.resource.data.businessId);
+      allow update: if isValidId(automationId) && isMemberOfBusiness(resource.data.businessId);
+      allow delete: if isValidId(automationId) && isMemberOfBusiness(resource.data.businessId);
+    }
+  }
+}

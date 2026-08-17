@@ -1,29 +1,71 @@
+export type BusinessCategory =
+  | 'Retail'
+  | 'Education'
+  | 'Real Estate'
+  | 'Healthcare'
+  | 'Agency'
+  | 'E-commerce'
+  | 'Services'
+  | 'Other';
+
+export type PipelineStage =
+  | 'New'
+  | 'Contacted'
+  | 'Qualified'
+  | 'Negotiation'
+  | 'Won'
+  | 'Lost';
+
+export type LeadScoreBand = 'Cold' | 'Warm' | 'Hot' | 'Very Hot';
+
+export interface UserProfile {
+  uid: string;
+  name: string;
+  email: string;
+  photoURL?: string;
+  companyId: string;
+  role: 'owner' | 'admin' | 'agent';
+  createdAt: string;
+  updatedAt: string;
+}
+
 export interface BusinessTenant {
   id: string;
   name: string;
   slug: string;
   email: string;
-  plan: string;
+  category?: BusinessCategory;
+  country?: string;
+  plan: 'Starter' | 'Growth' | 'Scale';
+  status?: 'active' | 'suspended';
+  features?: {
+    whatsapp: boolean;
+    ai: boolean;
+    campaigns: boolean;
+    automations: boolean;
+  };
   createdAt: string;
   updatedAt: string;
-  whatsappStatus?: string;
+  whatsappStatus?: 'CONNECTED' | 'NOT_CONNECTED' | 'ERROR';
   phoneNumber?: string;
   contactsCount?: number;
   conversationsCount?: number;
+  leadsCount?: number;
 }
 
 export interface WhatsAppConnection {
   businessId: string;
-  status: 'CONNECTED' | 'NOT_CONNECTED' | 'DISCONNECTED';
-  metaAppId: string;
-  wabaId: string;
-  phoneNumberId: string;
+  provider: 'YCloud' | 'MetaCloud' | 'Twilio';
+  status: 'CONNECTED' | 'NOT_CONNECTED' | 'ERROR' | 'DISCONNECTED';
+  apiKey?: string;
+  wabaId?: string;
+  phoneNumberId?: string;
   displayPhoneNumber: string;
   verifiedName: string;
   qualityRating: string;
-  codeVerificationStatus?: string;
   webhookStatus?: string;
-  accessToken: string;
+  webhookUrl?: string;
+  accessToken?: string;
   hasToken?: boolean;
   connectedAt: string | null;
   lastVerifiedAt: string | null;
@@ -36,17 +78,40 @@ export interface Customer {
   phone: string;
   name: string;
   email?: string;
+  location?: string;
   avatarUrl?: string;
   optInStatus: 'opted_in' | 'opted_out';
   tags: string[];
+  leadScore: number;
+  leadBand: LeadScoreBand;
+  stage: PipelineStage;
   notes: string;
+  assignedTo?: string;
   customAttributes: Record<string, string>;
   createdAt: string;
   updatedAt: string;
   lastInteraction: string;
 }
 
-export type LeadStatus = 'NEW' | 'QUALIFIED' | 'CONTACTED' | 'CONVERTED' | 'LOST';
+export type LeadStatus = PipelineStage;
+
+export interface BuyingSignals {
+  buying_intent: number; // 0-1
+  budget_provided: boolean;
+  product_interest: boolean;
+  urgency: number; // 0-1
+  demo_requested: boolean;
+  price_requested: boolean;
+}
+
+export interface QualificationData {
+  name: string;
+  requirement: string;
+  budget: string;
+  location: string;
+  product_interest: string;
+  timeline: string;
+}
 
 export interface Lead {
   id: string;
@@ -54,15 +119,22 @@ export interface Lead {
   customerId: string;
   customerName: string;
   customerPhone: string;
-  status: LeadStatus;
+  customerEmail?: string;
+  customerLocation?: string;
+  status: PipelineStage;
   score: number;
+  band: LeadScoreBand;
   intent: string;
   requirement?: string;
   budget?: string;
   timeline?: string;
+  productInterest?: string;
+  buyingSignals?: BuyingSignals;
   qualificationSummary: string;
   source: string;
   value: number;
+  tags: string[];
+  assignedTo?: string;
   notes: string;
   createdAt: string;
   updatedAt: string;
@@ -74,13 +146,17 @@ export interface Conversation {
   customerId: string;
   customerPhone: string;
   customerName: string;
+  customerAvatar?: string;
   lastMessage: string;
   lastMessageTime: string;
   unreadCount: number;
   status: 'open' | 'resolved' | 'snoozed';
   mode: 'AI' | 'HUMAN';
+  assignedTo?: string;
   leadId?: string;
-  leadStatus?: LeadStatus;
+  leadScore?: number;
+  leadBand?: LeadScoreBand;
+  stage?: PipelineStage;
   tags: string[];
   notes?: string;
   isWindowActive?: boolean;
@@ -93,10 +169,10 @@ export interface ChatMessage {
   businessId: string;
   conversationId: string;
   customerId: string;
-  from: 'customer' | 'agent' | 'ai';
+  from: 'customer' | 'agent' | 'ai' | 'system';
   senderName: string;
   text: string;
-  type: 'text' | 'image' | 'document' | 'template' | 'interactive';
+  type: 'text' | 'image' | 'document' | 'template' | 'interactive' | 'audio';
   mediaUrl?: string;
   templateName?: string;
   status: 'sent' | 'delivered' | 'read' | 'failed';
@@ -104,6 +180,12 @@ export interface ChatMessage {
   source: 'whatsapp' | 'ai' | 'agent' | 'system';
   rawPayload?: any;
   errorMessage?: string;
+  metadata?: {
+    intent?: string;
+    buyingSignals?: BuyingSignals;
+    confidence?: number;
+    escalate?: boolean;
+  };
 }
 
 export interface MessageTemplate {
@@ -116,7 +198,12 @@ export interface MessageTemplate {
   header?: { type: 'TEXT' | 'IMAGE'; text?: string };
   body: string;
   footer?: string;
-  buttons?: Array<{ type: 'QUICK_REPLY' | 'URL' | 'PHONE_NUMBER'; text: string; url?: string; phone_number?: string }>;
+  buttons?: Array<{
+    type: 'QUICK_REPLY' | 'URL' | 'PHONE_NUMBER';
+    text: string;
+    url?: string;
+    phone_number?: string;
+  }>;
   createdAt: string;
 }
 
@@ -124,13 +211,38 @@ export interface AutomationRule {
   id: string;
   businessId: string;
   name: string;
-  keyword: string;
-  matchType: 'exact' | 'contains' | 'starts_with';
-  responseText: string;
-  active: boolean;
-  action: 'reply_text' | 'handoff_human' | 'set_lead_status';
-  leadStatusTarget?: LeadStatus;
+  trigger: 'lead_score_hot' | 'no_reply_6_hours' | 'new_lead_created' | 'keyword_received';
+  keywordMatch?: string;
+  matchType?: 'exact' | 'contains' | 'starts_with';
+  actions: {
+    addTag?: string;
+    notifyTeam?: boolean;
+    createFollowUp?: boolean;
+    assignAgent?: string;
+    replyText?: string;
+  };
+  isActive: boolean;
+  executionCount: number;
+  lastExecutedAt?: string;
   createdAt: string;
+}
+
+export interface Campaign {
+  id: string;
+  businessId: string;
+  name: string;
+  audience: string;
+  templateId?: string;
+  messageText: string;
+  schedule: string;
+  status: 'Draft' | 'Scheduled' | 'Running' | 'Completed' | 'Paused';
+  targetCount: number;
+  sentCount: number;
+  deliveredCount: number;
+  readCount: number;
+  repliedCount: number;
+  createdAt: string;
+  updatedAt: string;
 }
 
 export interface AIConfig {
@@ -147,12 +259,25 @@ export interface AIConfig {
   faqs: string;
   rules: string;
   qualificationQuestions: string[];
+  personality: 'Professional' | 'Friendly' | 'Concise' | 'Consultative';
   tone: string;
   language: string;
   humanHandoff: boolean;
   humanHandoffKeywords: string[];
   leadQualificationCriteria: string;
   isConfigured?: boolean;
+}
+
+export interface GeminiSalesAgentOutput {
+  reply_text: string;
+  detected_intent: string;
+  qualification: QualificationData;
+  buying_signals: BuyingSignals;
+  suggested_tags: string[];
+  suggested_stage: PipelineStage;
+  escalate: boolean;
+  escalation_reason: string;
+  confidence: number;
 }
 
 export interface WebhookEventLog {
@@ -177,6 +302,37 @@ export interface DataDeletionRequest {
   url: string;
 }
 
+export interface SystemErrorLog {
+  id: string;
+  timestamp: string;
+  businessId?: string;
+  endpoint?: string;
+  source: 'whatsapp_webhook' | 'outbound_api' | 'gemini_ai' | 'firebase_auth' | 'system';
+  message: string;
+  stack?: string;
+  resolved: boolean;
+}
+
+export interface AdminUser {
+  id: string;
+  email: string;
+  name: string;
+  role: 'owner' | 'admin' | 'agent';
+  businessId: string;
+  businessName?: string;
+  createdAt: string;
+  lastLoginAt?: string;
+}
+
+export interface WebhookHealthMetrics {
+  status: 'healthy' | 'degraded' | 'error';
+  lastReceivedAt: string | null;
+  totalEventsCount: number;
+  processedCount: number;
+  failedCount: number;
+  avgLatencyMs: number;
+}
+
 export interface AdminOverview {
   health: {
     status: string;
@@ -199,7 +355,10 @@ export interface AdminOverview {
     totalStorageBytes?: number;
   };
   businesses: BusinessTenant[];
+  users: AdminUser[];
   recentWebhookEvents: WebhookEventLog[];
+  recentErrors: SystemErrorLog[];
+  webhookHealth: WebhookHealthMetrics;
 }
 
 export type StorageCategory =
