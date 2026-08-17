@@ -364,16 +364,15 @@ onMounted(() => {
                     {{ errorCode === 'WHATSAPP_CONFIGURATION_REQUIRED' ? 'WhatsApp Configuration Required' : 'Connection Failed' }}
                   </h3>
                   <p class="text-xs text-red-700 mt-1 leading-relaxed">
-                    {{ errorMessage || 'WhatsApp configuration is required.' }}
+                    {{ errorMessage || 'WhatsApp configuration is required on the server.' }}
                   </p>
                 </div>
               </div>
 
               <div class="bg-white/80 p-3.5 rounded-xl border border-red-200/60 text-xs text-slate-700 space-y-1">
-                <div class="font-semibold text-slate-900">Required Environment Configuration:</div>
-                <div class="font-mono text-[11px] text-slate-600">WHATSAPP_API_KEY / WHATSAPP_PHONE_NUMBER_ID</div>
-                <p class="text-[11px] text-slate-500 mt-1">
-                  Ensure the WhatsApp provider API credentials are configured in your server environment or .env file.
+                <div class="font-semibold text-slate-900">Server Configuration Required</div>
+                <p class="text-[11px] text-slate-500 mt-1 leading-relaxed">
+                  The WhatsApp server API key must be configured in your server environment variables. All credentials remain secure on the server.
                 </p>
               </div>
             </div>
