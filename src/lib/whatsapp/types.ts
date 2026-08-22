@@ -105,6 +105,7 @@ export interface SendTextMessageParams {
   text: string;
   businessId?: string;
   phoneNumberId?: string;
+  accessToken?: string;
   previewUrl?: boolean;
   replyToMessageId?: string;
 }
@@ -118,6 +119,7 @@ export interface SendTemplateMessageParams {
   language?: string;
   businessId?: string;
   phoneNumberId?: string;
+  accessToken?: string;
   components?: Array<{
     type: 'header' | 'body' | 'button';
     sub_type?: 'url' | 'quick_reply';
@@ -143,6 +145,7 @@ export interface SendMediaMessageParams {
   filename?: string;
   businessId?: string;
   phoneNumberId?: string;
+  accessToken?: string;
 }
 
 /**

@@ -116,8 +116,21 @@ export const api = {
     return res.data;
   },
 
-  async embeddedSignup(data: any): Promise<{ connection: WhatsAppConnection; message: string }> {
+  async embeddedSignup(data: {
+    code?: string;
+    wabaId?: string;
+    phoneNumberId?: string;
+    accessToken?: string;
+    metaAppId?: string;
+    verifiedName?: string;
+    displayPhoneNumber?: string;
+  }): Promise<{ connection: WhatsAppConnection; message: string }> {
     const res = await client.post('/whatsapp/embedded-signup', data);
+    return res.data;
+  },
+
+  async testWhatsAppSend(to: string, message: string): Promise<{ success: boolean; messageId?: string; message: string; error?: string }> {
+    const res = await client.post('/whatsapp/test-send', { to, message });
     return res.data;
   },
 

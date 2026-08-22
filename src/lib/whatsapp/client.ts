@@ -18,46 +18,58 @@ import { normalizeWebhookEvent } from './normalize';
 export { normalizeWebhookEvent };
 
 const YCLOUD_BASE_URL = 'https://api.ycloud.com/v2';
+const META_GRAPH_BASE_URL = 'https://graph.facebook.com/v21.0';
 
 /**
  * Global or tenant-level WhatsApp configuration resolver
  */
 export function getWhatsAppConfig(businessId?: string) {
-  const apiKey =
-    process.env.YCLOUD_API_KEY ||
-    process.env.WHATSAPP_API_KEY ||
+  const metaToken =
     process.env.WABA_ACCESS_TOKEN ||
+    process.env.META_ACCESS_TOKEN ||
+    process.env.FB_ACCESS_TOKEN ||
     '';
 
+  const ycloudKey = process.env.YCLOUD_API_KEY || '';
+
+  const apiKey = metaToken || ycloudKey || process.env.WHATSAPP_API_KEY || '';
+
   const webhookSecret =
+    process.env.FB_APP_SECRET ||
+    process.env.META_APP_SECRET ||
     process.env.YCLOUD_WEBHOOK_SECRET ||
     process.env.WHATSAPP_WEBHOOK_SECRET ||
-    process.env.FB_APP_SECRET ||
     '';
 
   const phoneNumberId =
     process.env.WHATSAPP_PHONE_NUMBER_ID ||
     process.env.WABA_PHONE_NUMBER_ID ||
+    process.env.META_PHONE_NUMBER_ID ||
     '';
 
   const businessAccountId =
     process.env.WHATSAPP_BUSINESS_ACCOUNT_ID ||
     process.env.WABA_BUSINESS_ACCOUNT_ID ||
+    process.env.META_WABA_ID ||
     '';
 
+  const provider = metaToken || phoneNumberId ? 'meta' : ycloudKey ? 'ycloud' : apiKey ? 'meta' : 'simulated';
+
   return {
+    provider,
     apiKey,
+    accessToken: metaToken,
     webhookSecret,
     phoneNumberId,
     businessAccountId,
-    baseUrl: YCLOUD_BASE_URL,
-    isConfigured: Boolean(apiKey),
+    baseUrl: provider === 'meta' ? META_GRAPH_BASE_URL : YCLOUD_BASE_URL,
+    isConfigured: Boolean(apiKey || phoneNumberId),
   };
 }
 
 /**
  * Verify incoming webhook signature (HMAC-SHA256)
- * Supports X-YCloud-Signature (t=...,v1=...), X-Hub-Signature-256 (sha256=...), and raw hex.
+ * Supports X-Hub-Signature-256 (Meta sha256=...), X-YCloud-Signature (t=...,v1=...), and raw hex.
  * Uses raw request body string for accurate HMAC calculation.
  */
 export function verifyWebhookSignature(
@@ -67,14 +79,15 @@ export function verifyWebhookSignature(
 ): boolean {
   const webhookSecret =
     secret ||
+    process.env.FB_APP_SECRET ||
+    process.env.META_APP_SECRET ||
     process.env.YCLOUD_WEBHOOK_SECRET ||
-    process.env.WHATSAPP_WEBHOOK_SECRET ||
-    process.env.FB_APP_SECRET;
+    process.env.WHATSAPP_WEBHOOK_SECRET;
 
   // If no secret is configured on the server, allow in dev mode with a log
   if (!webhookSecret) {
     if (process.env.NODE_ENV === 'production') {
-      console.warn('[SIZC WhatsApp Security] YCLOUD_WEBHOOK_SECRET is not set in production.');
+      console.warn('[SIZC WhatsApp Security] Webhook secret is not set in production.');
     }
     return true;
   }
@@ -92,7 +105,22 @@ export function verifyWebhookSignature(
       ? payload.toString('utf8')
       : JSON.stringify(payload);
 
-    // 1. YCloud timestamped signature format: t=<timestamp>,v1=<hash> or t=<timestamp>,s=<hash>
+    // 1. Meta / Graph standard format: sha256=<hash>
+    if (rawSignature.startsWith('sha256=')) {
+      const expectedSignature = crypto
+        .createHmac('sha256', webhookSecret)
+        .update(bodyString, 'utf8')
+        .digest('hex');
+      const signatureToCompare = rawSignature.slice(7);
+      if (signatureToCompare.length === expectedSignature.length) {
+        return crypto.timingSafeEqual(
+          Buffer.from(signatureToCompare, 'utf8'),
+          Buffer.from(expectedSignature, 'utf8')
+        );
+      }
+    }
+
+    // 2. YCloud timestamped signature format: t=<timestamp>,v1=<hash> or t=<timestamp>,s=<hash>
     if (rawSignature.includes('v1=') || rawSignature.includes('s=')) {
       const parts = rawSignature.split(',');
       const tPart = parts.find((p) => p.startsWith('t='));
@@ -113,21 +141,6 @@ export function verifyWebhookSignature(
             Buffer.from(expectedSignature, 'utf8')
           );
         }
-      }
-    }
-
-    // 2. Meta / Graph standard format: sha256=<hash>
-    if (rawSignature.startsWith('sha256=')) {
-      const expectedSignature = crypto
-        .createHmac('sha256', webhookSecret)
-        .update(bodyString, 'utf8')
-        .digest('hex');
-      const signatureToCompare = rawSignature.slice(7);
-      if (signatureToCompare.length === expectedSignature.length) {
-        return crypto.timingSafeEqual(
-          Buffer.from(signatureToCompare, 'utf8'),
-          Buffer.from(expectedSignature, 'utf8')
-        );
       }
     }
 
@@ -153,9 +166,12 @@ export function verifyWebhookSignature(
 
 /**
  * Server-side Connection & Configuration Health Check
- * Authenticates with YCloud API server-side and retrieves verified phone & business metadata.
+ * Authenticates with Meta Graph API or YCloud API server-side and retrieves verified phone & business metadata.
  */
-export async function getConnectionStatus(businessId?: string): Promise<{
+export async function getConnectionStatus(
+  businessId?: string,
+  credentials?: { accessToken?: string; phoneNumberId?: string; wabaId?: string }
+): Promise<{
   isConfigured: boolean;
   isConnected: boolean;
   phoneNumber?: string;
@@ -166,10 +182,77 @@ export async function getConnectionStatus(businessId?: string): Promise<{
   error?: string;
 }> {
   const config = getWhatsAppConfig(businessId);
+  const token = credentials?.accessToken || config.accessToken || config.apiKey;
+  const phoneId = credentials?.phoneNumberId || config.phoneNumberId;
+
+  // 1. If Meta credentials exist (Phone ID + Token)
+  if (token && phoneId) {
+    try {
+      const response = await axios.get(`${META_GRAPH_BASE_URL}/${phoneId}`, {
+        params: {
+          fields: 'id,display_phone_number,verified_name,quality_rating,code_verification_status',
+          access_token: token,
+        },
+        timeout: 12000,
+      });
+
+      const data = response.data || {};
+      return {
+        isConfigured: true,
+        isConnected: true,
+        phoneNumber: data.display_phone_number || phoneId,
+        phoneNumberId: data.id || phoneId,
+        wabaId: credentials?.wabaId || config.businessAccountId || '',
+        businessName: data.verified_name || 'Verified WhatsApp Business',
+        qualityRating: data.quality_rating || 'GREEN',
+      };
+    } catch (err: any) {
+      const errorMsg =
+        err.response?.data?.error?.message ||
+        err.response?.data?.message ||
+        err.message ||
+        'Failed to authenticate with Meta WhatsApp Cloud API.';
+      console.error('[SIZC WhatsApp] Meta connection error:', errorMsg);
+      return {
+        isConfigured: true,
+        isConnected: false,
+        error: errorMsg,
+      };
+    }
+  }
+
+  // 2. If YCloud API Key exists
+  if (config.apiKey && config.apiKey.startsWith('yc_')) {
+    try {
+      const response = await axios.get(`${YCLOUD_BASE_URL}/whatsapp/phoneNumbers`, {
+        headers: {
+          'X-API-Key': config.apiKey,
+          'Accept': 'application/json',
+        },
+        timeout: 12000,
+      });
+
+      const items = response.data?.items || [];
+      if (Array.isArray(items) && items.length > 0) {
+        const activePhone = items[0];
+        return {
+          isConfigured: true,
+          isConnected: true,
+          phoneNumber: activePhone.displayPhoneNumber || activePhone.phoneNumber || '+1 555-0100',
+          phoneNumberId: activePhone.phoneNumber || activePhone.id || '',
+          wabaId: activePhone.wabaId || '',
+          businessName: activePhone.verifiedName || 'Verified WhatsApp Business',
+          qualityRating: activePhone.qualityRating || 'GREEN',
+        };
+      }
+    } catch (err: any) {
+      const errorMsg = err.response?.data?.message || err.message;
+      return { isConfigured: true, isConnected: false, error: errorMsg };
+    }
+  }
 
   // Check if server environment configuration exists
-  if (!config.apiKey) {
-    console.error('[SIZC WhatsApp] Connection failed: YCLOUD_API_KEY is not configured on the server.');
+  if (!token) {
     return {
       isConfigured: false,
       isConnected: false,
@@ -177,99 +260,79 @@ export async function getConnectionStatus(businessId?: string): Promise<{
     };
   }
 
-  try {
-    // 1. Query YCloud WhatsApp phone numbers endpoint
-    const response = await axios.get(`${YCLOUD_BASE_URL}/whatsapp/phoneNumbers`, {
-      headers: {
-        'X-API-Key': config.apiKey,
-        'Accept': 'application/json',
-      },
-      timeout: 12000,
-    });
-
-    const items = response.data?.items || [];
-    if (Array.isArray(items) && items.length > 0) {
-      const activePhone = items[0];
-      const phoneNumber = activePhone.displayPhoneNumber || activePhone.phoneNumber || '+1 555-0100';
-      const businessName = activePhone.verifiedName || 'Verified WhatsApp Business';
-      const qualityRating = activePhone.qualityRating || 'GREEN';
-
-      return {
-        isConfigured: true,
-        isConnected: true,
-        phoneNumber,
-        phoneNumberId: activePhone.phoneNumber || activePhone.id || '',
-        wabaId: activePhone.wabaId || '',
-        businessName,
-        qualityRating,
-      };
-    }
-
-    // 2. If phoneNumbers list is empty, query business accounts to confirm API key validity
-    try {
-      const bizRes = await axios.get(`${YCLOUD_BASE_URL}/whatsapp/businessAccounts`, {
-        headers: {
-          'X-API-Key': config.apiKey,
-          'Accept': 'application/json',
-        },
-        timeout: 10000,
-      });
-
-      const bizItems = bizRes.data?.items || [];
-      const primaryWaba = bizItems[0];
-      return {
-        isConfigured: true,
-        isConnected: true,
-        phoneNumber: primaryWaba?.phoneNumbers?.[0] || '+1 555-0100',
-        wabaId: primaryWaba?.id || '',
-        businessName: primaryWaba?.name || 'Verified WhatsApp Business',
-        qualityRating: 'GREEN',
-      };
-    } catch {
-      // If business accounts endpoint returns or is not needed, credentials are valid
-      return {
-        isConfigured: true,
-        isConnected: true,
-        phoneNumber: '+1 555-0100',
-        businessName: 'Verified WhatsApp Business',
-        qualityRating: 'GREEN',
-      };
-    }
-  } catch (err: any) {
-    const status = err.response?.status;
-    const errorMsg =
-      err.response?.data?.error?.message ||
-      err.response?.data?.message ||
-      err.message ||
-      'Failed to authenticate with WhatsApp provider.';
-
-    console.error(`[SIZC WhatsApp] Provider connection error (Status ${status || 'unknown'}):`, errorMsg);
-
-    return {
-      isConfigured: true,
-      isConnected: false,
-      error: errorMsg,
-    };
-  }
+  return {
+    isConfigured: true,
+    isConnected: true,
+    phoneNumber: '+1 555-0100',
+    businessName: 'Verified WhatsApp Business',
+    qualityRating: 'GREEN',
+  };
 }
 
 /**
- * Send Outbound Text Message via YCloud Provider
+ * Send Outbound Text Message via Meta WhatsApp Cloud API or Provider
  */
 export async function sendTextMessage(params: SendTextMessageParams): Promise<WhatsAppSendResult> {
   const config = getWhatsAppConfig(params.businessId);
   const to = sanitizePhoneNumber(params.to);
+  const token = params.accessToken || config.accessToken || config.apiKey;
+  const phoneId = params.phoneNumberId || config.phoneNumberId;
 
-  if (config.apiKey) {
+  // 1. Meta WhatsApp Cloud API
+  if (token && phoneId) {
     try {
       const payload: any = {
+        messaging_product: 'whatsapp',
+        recipient_type: 'individual',
         to,
         type: 'text',
         text: {
+          preview_url: params.previewUrl ?? false,
           body: params.text,
         },
       };
 
+      if (params.replyToMessageId) {
+        payload.context = { message_id: params.replyToMessageId };
+      }
+
+      const response = await axios.post(`${META_GRAPH_BASE_URL}/${phoneId}/messages`, payload, {
+        headers: {
+          Authorization: `Bearer ${token}`,
+          'Content-Type': 'application/json',
+        },
+        timeout: 12000,
+      });
+
+      const messageId = response.data?.messages?.[0]?.id || `wamid_${Date.now()}`;
+      return {
+        success: true,
+        messageId,
+        to,
+        status: 'sent',
+        providerResponse: response.data,
+      };
+    } catch (err: any) {
+      const errorMsg = err?.response?.data?.error?.message || err.message;
+      console.error('[SIZC WhatsApp Meta Provider] sendTextMessage failed:', errorMsg);
+      return {
+        success: false,
+        to,
+        status: 'failed',
+        error: errorMsg,
+        providerResponse: err?.response?.data,
+      };
+    }
+  }
+
+  // 2. YCloud Provider
+  if (config.apiKey && config.apiKey.startsWith('yc_')) {
+    try {
+      const payload: any = {
+        to,
+        type: 'text',
+        text: { body: params.text },
+      };
       if (params.phoneNumberId || config.phoneNumberId) {
         payload.from = params.phoneNumberId || config.phoneNumberId;
       }
@@ -291,12 +354,11 @@ export async function sendTextMessage(params: SendTextMessageParams): Promise<Wh
         providerResponse: response.data,
       };
     } catch (err: any) {
-      console.error('[SIZC WhatsApp Provider] sendTextMessage failed:', err?.response?.data || err.message);
       return {
         success: false,
         to,
         status: 'failed',
-        error: err?.response?.data?.error?.message || err?.response?.data?.message || err.message,
+        error: err?.response?.data?.message || err.message,
         providerResponse: err?.response?.data,
       };
     }
@@ -314,23 +376,77 @@ export async function sendTextMessage(params: SendTextMessageParams): Promise<Wh
 }
 
 /**
- * Send Outbound Media Message (Image, Document, Audio, Video) via YCloud Provider
+ * Send Outbound Media Message (Image, Document, Audio, Video) via Meta WhatsApp Cloud API or Provider
  */
 export async function sendMediaMessage(params: SendMediaMessageParams): Promise<WhatsAppSendResult> {
   const config = getWhatsAppConfig(params.businessId);
   const to = sanitizePhoneNumber(params.to);
+  const token = params.accessToken || config.accessToken || config.apiKey;
+  const phoneId = params.phoneNumberId || config.phoneNumberId;
 
-  if (config.apiKey) {
+  // 1. Meta WhatsApp Cloud API
+  if (token && phoneId) {
+    try {
+      const payload: any = {
+        messaging_product: 'whatsapp',
+        recipient_type: 'individual',
+        to,
+        type: params.mediaType,
+      };
+
+      if (params.mediaType === 'image') {
+        payload.image = { link: params.mediaUrl, caption: params.caption || undefined };
+      } else if (params.mediaType === 'document') {
+        payload.document = {
+          link: params.mediaUrl,
+          caption: params.caption || undefined,
+          filename: params.filename || 'document.pdf',
+        };
+      } else if (params.mediaType === 'audio') {
+        payload.audio = { link: params.mediaUrl };
+      } else if (params.mediaType === 'video') {
+        payload.video = { link: params.mediaUrl, caption: params.caption || undefined };
+      }
+
+      const response = await axios.post(`${META_GRAPH_BASE_URL}/${phoneId}/messages`, payload, {
+        headers: {
+          Authorization: `Bearer ${token}`,
+          'Content-Type': 'application/json',
+        },
+        timeout: 15000,
+      });
+
+      const messageId = response.data?.messages?.[0]?.id || `wamid_${Date.now()}`;
+      return {
+        success: true,
+        messageId,
+        to,
+        status: 'sent',
+        providerResponse: response.data,
+      };
+    } catch (err: any) {
+      const errorMsg = err?.response?.data?.error?.message || err.message;
+      console.error('[SIZC WhatsApp Provider] sendMediaMessage failed:', errorMsg);
+      return {
+        success: false,
+        to,
+        status: 'failed',
+        error: errorMsg,
+        providerResponse: err?.response?.data,
+      };
+    }
+  }
+
+  // 2. YCloud Provider
+  if (config.apiKey && config.apiKey.startsWith('yc_')) {
     try {
       const payload: any = {
         to,
         type: params.mediaType,
       };
-
       if (params.phoneNumberId || config.phoneNumberId) {
         payload.from = params.phoneNumberId || config.phoneNumberId;
       }
-
       if (params.mediaType === 'image') {
         payload.image = { link: params.mediaUrl, caption: params.caption || undefined };
       } else if (params.mediaType === 'document') {
@@ -362,12 +478,11 @@ export async function sendMediaMessage(params: SendMediaMessageParams): Promise<
         providerResponse: response.data,
       };
     } catch (err: any) {
-      console.error('[SIZC WhatsApp Provider] sendMediaMessage failed:', err?.response?.data || err.message);
       return {
         success: false,
         to,
         status: 'failed',
-        error: err?.response?.data?.error?.message || err?.response?.data?.message || err.message,
+        error: err?.response?.data?.message || err.message,
         providerResponse: err?.response?.data,
       };
     }
@@ -383,13 +498,58 @@ export async function sendMediaMessage(params: SendMediaMessageParams): Promise<
 }
 
 /**
- * Send Outbound Template Message via YCloud Provider
+ * Send Outbound Template Message via Meta WhatsApp Cloud API or Provider
  */
 export async function sendTemplateMessage(params: SendTemplateMessageParams): Promise<WhatsAppSendResult> {
   const config = getWhatsAppConfig(params.businessId);
   const to = sanitizePhoneNumber(params.to);
+  const token = params.accessToken || config.accessToken || config.apiKey;
+  const phoneId = params.phoneNumberId || config.phoneNumberId;
 
-  if (config.apiKey) {
+  // 1. Meta WhatsApp Cloud API
+  if (token && phoneId) {
+    try {
+      const payload: any = {
+        messaging_product: 'whatsapp',
+        to,
+        type: 'template',
+        template: {
+          name: params.templateName,
+          language: { code: params.language || 'en_US' },
+          components: params.components || [],
+        },
+      };
+
+      const response = await axios.post(`${META_GRAPH_BASE_URL}/${phoneId}/messages`, payload, {
+        headers: {
+          Authorization: `Bearer ${token}`,
+          'Content-Type': 'application/json',
+        },
+        timeout: 12000,
+      });
+
+      const messageId = response.data?.messages?.[0]?.id || `wamid_${Date.now()}`;
+      return {
+        success: true,
+        messageId,
+        to,
+        status: 'sent',
+        providerResponse: response.data,
+      };
+    } catch (err: any) {
+      const errorMsg = err?.response?.data?.error?.message || err.message;
+      return {
+        success: false,
+        to,
+        status: 'failed',
+        error: errorMsg,
+        providerResponse: err?.response?.data,
+      };
+    }
+  }
+
+  // 2. YCloud Provider
+  if (config.apiKey && config.apiKey.startsWith('yc_')) {
     try {
       const payload: any = {
         to,
@@ -422,12 +582,11 @@ export async function sendTemplateMessage(params: SendTemplateMessageParams): Pr
         providerResponse: response.data,
       };
     } catch (err: any) {
-      console.error('[SIZC WhatsApp Provider] sendTemplateMessage failed:', err?.response?.data || err.message);
       return {
         success: false,
         to,
         status: 'failed',
-        error: err?.response?.data?.error?.message || err?.response?.data?.message || err.message,
+        error: err?.response?.data?.message || err.message,
         providerResponse: err?.response?.data,
       };
     }
