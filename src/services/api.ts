@@ -117,8 +117,19 @@ export const api = {
     wabaId?: string;
     phoneNumberId: string;
     accessToken: string;
+    apiKey?: string;
+    provider?: string;
   }): Promise<{ connection: WhatsAppConnection; message: string }> {
     const res = await client.post('/whatsapp/verify-credentials', data);
+    return res.data;
+  },
+
+  async autoFixWhatsApp(data?: {
+    phoneNumber?: string;
+    provider?: string;
+    businessName?: string;
+  }): Promise<{ connection: WhatsAppConnection; message: string }> {
+    const res = await client.post('/whatsapp/auto-fix', data || {});
     return res.data;
   },
 

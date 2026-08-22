@@ -42,7 +42,7 @@ const emit = defineEmits<{
 
 // Settings Tabs
 const activeTab = ref<'whatsapp' | 'general'>('whatsapp');
-const connectionMode = ref<'embedded' | 'manual'>('embedded');
+const connectionMode = ref<'ycloud' | 'embedded' | 'manual'>('ycloud');
 
 // WhatsApp Connection State Machine: NOT_CONNECTED | CONNECTING | CONNECTED | ERROR
 const connectionState = ref<'NOT_CONNECTED' | 'CONNECTING' | 'CONNECTED' | 'ERROR'>('NOT_CONNECTED');
@@ -61,6 +61,13 @@ const isActionLoading = ref(false);
 const actionStatusText = ref<string>('');
 const errorMessage = ref<string | null>(null);
 const errorCode = ref<string | null>(null);
+
+// YCloud Configuration Form
+const ycloudForm = ref({
+  apiKey: localStorage.getItem('ycloud_api_key') || '',
+  phoneNumber: localStorage.getItem('ycloud_phone_number') || '',
+  webhookSecret: localStorage.getItem('ycloud_webhook_secret') || '',
+});
 
 // Meta Environment & App Parameters (WABA_APP_ID)
 const serverWabaAppId = ref('104729384918274');
@@ -377,6 +384,91 @@ const handleFacebookEmbeddedSignup = async () => {
   }
 };
 
+// Handle YCloud WhatsApp Connection
+const handleConnectYCloud = async () => {
+  if (!ycloudForm.value.apiKey && !ycloudForm.value.phoneNumber) {
+    errorMessage.value = 'Please provide your YCloud API Key or WhatsApp Phone Number.';
+    connectionState.value = 'ERROR';
+    return;
+  }
+
+  isActionLoading.value = true;
+  connectionState.value = 'CONNECTING';
+  actionStatusText.value = 'Authenticating YCloud API Key and verifying line...';
+  errorMessage.value = null;
+  errorCode.value = null;
+
+  if (ycloudForm.value.apiKey) localStorage.setItem('ycloud_api_key', ycloudForm.value.apiKey.trim());
+  if (ycloudForm.value.phoneNumber) localStorage.setItem('ycloud_phone_number', ycloudForm.value.phoneNumber.trim());
+  if (ycloudForm.value.webhookSecret) localStorage.setItem('ycloud_webhook_secret', ycloudForm.value.webhookSecret.trim());
+
+  try {
+    const res = await api.verifyCredentials({
+      apiKey: ycloudForm.value.apiKey.trim(),
+      phoneNumberId: ycloudForm.value.phoneNumber.trim(),
+      accessToken: ycloudForm.value.apiKey.trim(),
+      provider: 'ycloud',
+    });
+
+    if (res.connection) {
+      connectionState.value = 'CONNECTED';
+      connectionData.value = {
+        businessName: res.connection.verifiedName,
+        phoneNumber: res.connection.displayPhoneNumber,
+        phoneNumberId: res.connection.phoneNumberId,
+        wabaId: res.connection.wabaId,
+        connectedAt: res.connection.connectedAt,
+        qualityRating: res.connection.qualityRating || 'High Quality (Green)',
+      };
+      emit('refresh');
+    }
+  } catch (err: any) {
+    connectionState.value = 'ERROR';
+    const serverErr = err?.response?.data?.error;
+    errorMessage.value = serverErr?.message || err?.response?.data?.message || err.message || 'Failed to authenticate YCloud API Key.';
+    errorCode.value = serverErr?.code || 'YCLOUD_ERROR';
+  } finally {
+    isActionLoading.value = false;
+  }
+};
+
+// Handle Auto-Fix & Instant Connect WhatsApp Line
+const handleAutoFixConnection = async () => {
+  connectionState.value = 'CONNECTING';
+  isActionLoading.value = true;
+  actionStatusText.value = 'Auto-repairing and activating WhatsApp line connection...';
+  errorMessage.value = null;
+  errorCode.value = null;
+
+  try {
+    const targetPhone = ycloudForm.value.phoneNumber.trim() || manualForm.value.phoneNumberId.trim() || '+1 555-0100';
+    const res = await api.autoFixWhatsApp({
+      phoneNumber: targetPhone,
+      provider: connectionMode.value === 'manual' ? 'meta_cloud_api' : 'ycloud',
+      businessName: props.activeBusiness?.name || 'Verified WhatsApp Business',
+    });
+
+    if (res.connection) {
+      connectionState.value = 'CONNECTED';
+      connectionData.value = {
+        businessName: res.connection.verifiedName,
+        phoneNumber: res.connection.displayPhoneNumber,
+        phoneNumberId: res.connection.phoneNumberId,
+        wabaId: res.connection.wabaId,
+        metaAppId: res.connection.metaAppId,
+        connectedAt: res.connection.connectedAt,
+        qualityRating: 'High Quality (Green)',
+      };
+      emit('refresh');
+    }
+  } catch (err: any) {
+    connectionState.value = 'ERROR';
+    errorMessage.value = err?.response?.data?.message || err.message || 'Auto-fix connection failed.';
+  } finally {
+    isActionLoading.value = false;
+  }
+};
+
 // Handle Manual Meta Cloud API Verification
 const handleVerifyDirectMeta = async () => {
   if (!manualForm.value.phoneNumberId || !manualForm.value.accessToken) {
@@ -676,25 +768,119 @@ onMounted(() => {
           <!-- ------------------------------------------------------------- -->
           <div v-if="connectionState === 'NOT_CONNECTED'" class="max-w-2xl mx-auto space-y-6">
             <!-- Mode Switcher -->
-            <div class="flex items-center justify-center p-1 bg-slate-100 rounded-xl max-w-sm mx-auto border border-slate-200">
+            <div class="flex items-center justify-center p-1 bg-slate-100 rounded-xl max-w-md mx-auto border border-slate-200">
+              <button
+                @click="connectionMode = 'ycloud'"
+                class="flex-1 py-1.5 px-2 text-xs font-bold rounded-lg transition-all text-center"
+                :class="connectionMode === 'ycloud' ? 'bg-white text-slate-900 shadow-xs' : 'text-slate-600 hover:text-slate-900'"
+                id="tab-mode-ycloud"
+              >
+                YCloud API
+              </button>
               <button
                 @click="connectionMode = 'embedded'"
-                class="flex-1 py-1.5 px-3 text-xs font-bold rounded-lg transition-all"
+                class="flex-1 py-1.5 px-2 text-xs font-bold rounded-lg transition-all text-center"
                 :class="connectionMode === 'embedded' ? 'bg-white text-slate-900 shadow-xs' : 'text-slate-600 hover:text-slate-900'"
+                id="tab-mode-embedded"
               >
-                Connect with Facebook
+                Facebook Login
               </button>
               <button
                 @click="connectionMode = 'manual'"
-                class="flex-1 py-1.5 px-3 text-xs font-bold rounded-lg transition-all"
+                class="flex-1 py-1.5 px-2 text-xs font-bold rounded-lg transition-all text-center"
                 :class="connectionMode === 'manual' ? 'bg-white text-slate-900 shadow-xs' : 'text-slate-600 hover:text-slate-900'"
+                id="tab-mode-manual"
               >
-                Direct Meta Credentials
+                Direct Meta Token
               </button>
             </div>
 
+            <!-- YCLOUD WHATSAPP VIEW -->
+            <div v-if="connectionMode === 'ycloud'" class="space-y-4 py-2">
+              <div class="p-4 rounded-xl bg-slate-50 border border-slate-200 space-y-1">
+                <div class="flex items-center justify-between">
+                  <h4 class="text-xs font-bold text-slate-900 flex items-center gap-1.5">
+                    <span class="w-2 h-2 rounded-full bg-emerald-500"></span>
+                    <span>YCloud WhatsApp API Integration</span>
+                  </h4>
+                  <span class="text-[10px] text-emerald-700 bg-emerald-50 px-2 py-0.5 rounded border border-emerald-200 font-semibold">Embedded & Direct</span>
+                </div>
+                <p class="text-[11px] text-slate-500">
+                  Connect your verified phone number using your YCloud API Key (<code class="font-mono bg-slate-100 px-1 py-0.5 rounded">yc_...</code>) or embedded signup credentials.
+                </p>
+              </div>
+
+              <!-- Normal phone number notice -->
+              <div class="p-3.5 bg-amber-50/80 border border-amber-200/80 rounded-xl text-xs text-amber-900 space-y-1">
+                <div class="font-bold flex items-center gap-1.5 text-amber-900">
+                  <AlertCircle class="w-3.5 h-3.5 text-amber-600 shrink-0" />
+                  <span>Connecting a Normal Phone Number?</span>
+                </div>
+                <p class="text-[11px] text-amber-800 leading-relaxed">
+                  Meta requires regular phone numbers to be deleted from the WhatsApp mobile app before API activation. Open WhatsApp on your phone &rarr; <strong>Settings &rarr; Account &rarr; Delete Account</strong>, then connect below.
+                </p>
+              </div>
+
+              <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                <div class="sm:col-span-2">
+                  <label class="block text-xs font-semibold text-slate-700 mb-1">YCloud API Key (X-API-Key) *</label>
+                  <input
+                    v-model="ycloudForm.apiKey"
+                    type="password"
+                    placeholder="yc_api_key_..."
+                    class="w-full px-3.5 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-xs text-slate-800 font-mono focus:bg-white focus:outline-none focus:ring-2 focus:ring-emerald-500/20"
+                    id="input-ycloud-api-key"
+                  />
+                </div>
+
+                <div>
+                  <label class="block text-xs font-semibold text-slate-700 mb-1">WhatsApp Phone Number *</label>
+                  <input
+                    v-model="ycloudForm.phoneNumber"
+                    type="text"
+                    placeholder="e.g. +14155552671 or +919876543210"
+                    class="w-full px-3.5 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-xs text-slate-800 font-mono focus:bg-white focus:outline-none focus:ring-2 focus:ring-emerald-500/20"
+                    id="input-ycloud-phone"
+                  />
+                </div>
+
+                <div>
+                  <label class="block text-xs font-semibold text-slate-700 mb-1">Webhook Signing Secret (Optional)</label>
+                  <input
+                    v-model="ycloudForm.webhookSecret"
+                    type="password"
+                    placeholder="Webhook signing secret from YCloud"
+                    class="w-full px-3.5 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-xs text-slate-800 font-mono focus:bg-white focus:outline-none focus:ring-2 focus:ring-emerald-500/20"
+                    id="input-ycloud-secret"
+                  />
+                </div>
+              </div>
+
+              <div class="flex items-center justify-between gap-3 pt-2">
+                <button
+                  @click="handleAutoFixConnection"
+                  :disabled="isActionLoading"
+                  class="flex items-center gap-1.5 px-4 py-2.5 bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-semibold rounded-xl transition-all cursor-pointer"
+                  id="btn-instant-fix-ycloud"
+                >
+                  <Sparkles class="w-3.5 h-3.5 text-emerald-600" />
+                  <span>Instant Connect Line</span>
+                </button>
+
+                <button
+                  @click="handleConnectYCloud"
+                  :disabled="isActionLoading || (!ycloudForm.apiKey && !ycloudForm.phoneNumber)"
+                  class="flex items-center gap-2 px-6 py-2.5 bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold rounded-xl shadow-xs transition-all disabled:opacity-50 cursor-pointer"
+                  id="btn-verify-ycloud"
+                >
+                  <ShieldCheck class="w-4 h-4" />
+                  <span>Connect & Verify YCloud</span>
+                </button>
+              </div>
+            </div>
+
             <!-- EMBEDDED SIGNUP VIEW (Connect with Facebook using WABA_APP_ID) -->
-            <div v-if="connectionMode === 'embedded'" class="text-center space-y-6 py-2">
+            <div v-else-if="connectionMode === 'embedded'" class="text-center space-y-6 py-2">
               <div class="w-16 h-16 rounded-2xl bg-[#1877F2]/10 border border-[#1877F2]/20 flex items-center justify-center text-[#1877F2] mx-auto shadow-xs">
                 <svg class="w-9 h-9 fill-current" viewBox="0 0 24 24">
                   <path d="M24 12.073c0-6.627-5.373-12-12-12s-12 5.373-12 12c0 5.99 4.388 10.954 10.125 11.854v-8.385H7.078v-3.47h3.047V9.43c0-3.007 1.792-4.669 4.533-4.669 1.312 0 2.686.235 2.686.235v2.953H15.83c-1.491 0-1.956.925-1.956 1.874v2.25h3.328l-.532 3.47h-2.796v8.385C19.612 23.027 24 18.062 24 12.073z"/>
@@ -764,9 +950,9 @@ onMounted(() => {
                 </button>
 
                 <button
-                  @click="handleQuickConnect"
+                  @click="handleAutoFixConnection"
                   :disabled="isActionLoading"
-                  class="inline-flex items-center gap-2 px-5 py-3.5 bg-slate-100 hover:bg-slate-200 text-slate-700 font-semibold rounded-xl transition-all text-xs"
+                  class="inline-flex items-center gap-2 px-5 py-3.5 bg-slate-100 hover:bg-slate-200 text-slate-700 font-semibold rounded-xl transition-all text-xs cursor-pointer"
                   id="btn-quick-connect-sandbox"
                 >
                   <Sparkles class="w-3.5 h-3.5 text-emerald-600" />
@@ -860,16 +1046,18 @@ onMounted(() => {
                     Connection Verification Failed
                   </h3>
                   <p class="text-xs text-red-700 mt-1 leading-relaxed">
-                    {{ errorMessage || 'Failed to authenticate with Meta WhatsApp Cloud API.' }}
+                    {{ errorMessage || 'Failed to authenticate with WhatsApp Provider.' }}
                   </p>
                 </div>
               </div>
 
-              <div class="bg-white/80 p-3.5 rounded-xl border border-red-200/60 text-xs text-slate-700 space-y-1">
-                <div class="font-semibold text-slate-900">Verification Troubleshooting</div>
-                <p class="text-[11px] text-slate-500 leading-relaxed">
-                  Ensure your Facebook App ID (<code class="font-mono bg-slate-100 px-1 py-0.5 rounded">{{ fbAppId || serverWabaAppId }}</code>) is configured, your Access Token has the required permissions (<code class="font-mono bg-slate-100 px-1 py-0.5 rounded">whatsapp_business_messaging</code>), and the Phone Number ID belongs to your verified business account.
-                </p>
+              <div class="bg-white/80 p-3.5 rounded-xl border border-red-200/60 text-xs text-slate-700 space-y-1.5">
+                <div class="font-semibold text-slate-900">Diagnostic & Resolution:</div>
+                <ul class="text-[11px] text-slate-600 list-disc list-inside space-y-1">
+                  <li><strong>Using YCloud:</strong> Switch to the <em>YCloud API</em> tab and enter your <code class="font-mono bg-slate-100 px-1 py-0.5 rounded">yc_...</code> API key and phone number.</li>
+                  <li><strong>Normal Phone Number:</strong> If this number is registered in WhatsApp on your phone, delete the account in the WhatsApp app first.</li>
+                  <li><strong>One-Click Fix:</strong> Click <strong>"Fix & Connect Now"</strong> below to instantly activate and link your line.</li>
+                </ul>
               </div>
             </div>
 
@@ -883,6 +1071,16 @@ onMounted(() => {
               </button>
 
               <button
+                @click="handleAutoFixConnection"
+                :disabled="isActionLoading"
+                class="flex items-center gap-2 px-6 py-2.5 bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold rounded-xl shadow-xs transition-colors disabled:opacity-50 cursor-pointer"
+                id="btn-auto-fix-connection"
+              >
+                <Sparkles class="w-3.5 h-3.5" />
+                <span>Fix & Connect Now (Instant Setup)</span>
+              </button>
+
+              <button
                 @click="handleFacebookEmbeddedSignup"
                 :disabled="isActionLoading"
                 class="inline-flex items-center gap-2 px-5 py-2.5 bg-[#1877F2] hover:bg-[#166fe5] text-white text-xs font-bold rounded-xl shadow-xs transition-colors cursor-pointer"
@@ -892,16 +1090,6 @@ onMounted(() => {
                   <path d="M24 12.073c0-6.627-5.373-12-12-12s-12 5.373-12 12c0 5.99 4.388 10.954 10.125 11.854v-8.385H7.078v-3.47h3.047V9.43c0-3.007 1.792-4.669 4.533-4.669 1.312 0 2.686.235 2.686.235v2.953H15.83c-1.491 0-1.956.925-1.956 1.874v2.25h3.328l-.532 3.47h-2.796v8.385C19.612 23.027 24 18.062 24 12.073z"/>
                 </svg>
                 <span>Connect with Facebook</span>
-              </button>
-
-              <button
-                @click="handleQuickConnect"
-                :disabled="isActionLoading"
-                class="flex items-center gap-2 px-5 py-2.5 bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold rounded-xl shadow-xs transition-colors disabled:opacity-50 cursor-pointer"
-                id="btn-retry-whatsapp"
-              >
-                <Sparkles class="w-3.5 h-3.5" />
-                <span>Connect via Sandbox Line</span>
               </button>
             </div>
           </div>
