@@ -101,7 +101,13 @@ export const api = {
     return res.data;
   },
 
-  async getWhatsAppConnection(): Promise<{ connection: WhatsAppConnection; webhookUrl: string; verifyToken: string }> {
+  async getWhatsAppConnection(): Promise<{
+    connection: WhatsAppConnection;
+    appId?: string;
+    configId?: string;
+    webhookUrl: string;
+    verifyToken: string;
+  }> {
     const res = await client.get('/whatsapp/connection');
     return res.data;
   },
