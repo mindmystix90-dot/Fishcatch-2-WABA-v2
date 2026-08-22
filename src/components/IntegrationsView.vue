@@ -30,16 +30,43 @@ const connection = ref<{
   phoneNumber?: string;
 } | null>(null);
 
-const webhookUrl = ref('');
+const webhookUrl = ref(
+  typeof window !== 'undefined'
+    ? `${window.location.origin}/api/webhooks/whatsapp`
+    : '/api/webhooks/whatsapp'
+);
 const hasCopied = ref(false);
+const isConnecting = ref(false);
 
 const loadConnection = async () => {
   try {
     const status = await api.getWhatsAppStatus();
     connection.value = status;
-    webhookUrl.value = `${window.location.origin}/api/webhooks/whatsapp`;
+    if (typeof window !== 'undefined') {
+      webhookUrl.value = `${window.location.origin}/api/webhooks/whatsapp`;
+    }
   } catch (err) {
     console.error('Failed to load WhatsApp status:', err);
+    if (typeof window !== 'undefined') {
+      webhookUrl.value = `${window.location.origin}/api/webhooks/whatsapp`;
+    }
+  }
+};
+
+const handleDirectConnect = async () => {
+  try {
+    isConnecting.value = true;
+    const res = await api.connectWhatsApp();
+    connection.value = {
+      connected: true,
+      status: 'CONNECTED',
+      businessName: res.businessName,
+      phoneNumber: res.phoneNumber,
+    };
+  } catch (e) {
+    console.error(e);
+  } finally {
+    isConnecting.value = false;
   }
 };
 
@@ -147,10 +174,26 @@ onMounted(() => {
           </div>
         </div>
 
-        <div class="bg-slate-50 px-6 py-4 border-t border-slate-100 flex items-center justify-end">
+        <div class="bg-slate-50 px-6 py-4 border-t border-slate-100 flex items-center justify-between gap-3">
+          <button
+            v-if="!connection?.connected"
+            @click="handleDirectConnect"
+            :disabled="isConnecting"
+            class="flex items-center gap-1.5 px-4 py-2 bg-emerald-100 hover:bg-emerald-200 text-emerald-800 rounded-xl text-xs font-bold transition-all cursor-pointer disabled:opacity-50"
+            id="btn-integrations-quick-connect"
+          >
+            <Zap class="w-3.5 h-3.5 text-emerald-600" />
+            <span>{{ isConnecting ? 'Connecting...' : 'Quick Connect WhatsApp' }}</span>
+          </button>
+          <div v-else class="text-xs text-emerald-700 font-semibold flex items-center gap-1.5">
+            <CheckCircle2 class="w-4 h-4 text-emerald-600" />
+            <span>Active & Ready</span>
+          </div>
+
           <button
             @click="emit('navigate', 'settings')"
-            class="flex items-center gap-2 px-5 py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs font-bold shadow-xs transition-all"
+            class="flex items-center gap-2 px-5 py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs font-bold shadow-xs transition-all cursor-pointer"
+            id="btn-integrations-to-settings"
           >
             <span>Connection settings</span>
             <ExternalLink class="w-3.5 h-3.5" />

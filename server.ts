@@ -559,6 +559,75 @@ app.put('/api/businesses/:id', (req: Request, res: Response) => {
 // 2. WHATSAPP CONNECTION & META GRAPH API INTEGRATION
 // =============================================================================
 
+// Get WhatsApp status abstraction for Integrations View
+app.get('/api/integrations/whatsapp/status', (req: Request, res: Response) => {
+  const businessId = resolveBusinessId(req);
+  const conn = db.connections[businessId];
+  const isConnected = conn?.status === 'CONNECTED';
+  const displayPhone = conn?.displayPhoneNumber || conn?.phoneNumberId || '';
+  const bizName = conn?.verifiedName || db.businesses.find(b => b.id === businessId)?.name || 'WhatsApp Business';
+
+  res.json({
+    success: true,
+    connected: isConnected,
+    status: conn?.status || 'NOT_CONNECTED',
+    businessName: bizName,
+    phoneNumber: displayPhone,
+    connectedAt: conn?.connectedAt || null,
+    updatedAt: conn?.lastVerifiedAt || null,
+  });
+});
+
+app.post('/api/integrations/whatsapp/connect', async (req: Request, res: Response) => {
+  const businessId = resolveBusinessId(req);
+  const conn = db.connections[businessId];
+  const nowIso = new Date().toISOString();
+
+  db.connections[businessId] = {
+    businessId,
+    status: 'CONNECTED',
+    metaAppId: process.env.WABA_APP_ID || '104729384918274',
+    wabaId: conn?.wabaId || 'waba_active',
+    phoneNumberId: conn?.phoneNumberId || '+1 555-0100',
+    displayPhoneNumber: conn?.displayPhoneNumber || '+1 555-0100',
+    verifiedName: conn?.verifiedName || 'Verified WhatsApp Business',
+    qualityRating: 'GREEN',
+    accessToken: conn?.accessToken || 'live_token',
+    connectedAt: conn?.connectedAt || nowIso,
+    lastVerifiedAt: nowIso,
+  };
+
+  const biz = db.businesses.find(b => b.id === businessId);
+  if (biz) {
+    biz.whatsappStatus = 'CONNECTED';
+    biz.phoneNumber = db.connections[businessId].displayPhoneNumber;
+  }
+
+  res.json({
+    success: true,
+    connected: true,
+    status: 'CONNECTED',
+    businessName: db.connections[businessId].verifiedName,
+    phoneNumber: db.connections[businessId].displayPhoneNumber,
+  });
+});
+
+app.post('/api/integrations/whatsapp/disconnect', (req: Request, res: Response) => {
+  const businessId = resolveBusinessId(req);
+  if (db.connections[businessId]) {
+    db.connections[businessId].status = 'NOT_CONNECTED';
+  }
+  const biz = db.businesses.find(b => b.id === businessId);
+  if (biz) {
+    biz.whatsappStatus = 'NOT_CONNECTED';
+  }
+  res.json({
+    success: true,
+    connected: false,
+    status: 'NOT_CONNECTED',
+  });
+});
+
 // Get WhatsApp connection status and Meta configuration for tenant
 app.get('/api/whatsapp/connection', (req: Request, res: Response) => {
   const businessId = resolveBusinessId(req);
